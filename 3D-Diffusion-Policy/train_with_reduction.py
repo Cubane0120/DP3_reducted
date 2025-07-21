@@ -502,7 +502,9 @@ class TrainDP3Workspace:
                 ckpt_sd = value
                 filtered_sd = OrderedDict(
                     (k, v) for k, v in ckpt_sd.items()
-                    if ('up_modules' not in k) and ('final_conv' not in k)
+                    if ('up_modules' not in k) and ('final_conv' not in k) and ('mid_module' not in k)
+                    # if ('up_modules' not in k) and ('final_conv' not in k)
+                    #ver 2
                 )
 
                 self.model.load_state_dict(filtered_sd, strict=False, **kwargs)
