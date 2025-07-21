@@ -12,13 +12,13 @@ import pytorch3d.ops as torch3d_ops
 
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer
 from diffusion_policy_3d.policy.base_policy import BasePolicy
-from diffusion_policy_3d.model.diffusion.simple_conditional_unet1d import ConditionalUnet1D
+from diffusion_policy_3d.model.diffusion.conditional_unet1d import ConditionalUnet1D
 from diffusion_policy_3d.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.model_util import print_params
 from diffusion_policy_3d.model.vision.pointnet_extractor import DP3Encoder
 
-class SimpleDP3(BasePolicy):
+class DP3_Reducted(BasePolicy):
     def __init__(self, 
             shape_meta: dict,
             noise_scheduler: DDPMScheduler,
@@ -48,6 +48,9 @@ class SimpleDP3(BasePolicy):
             path_basis_md=None,
             **kwargs):
         super().__init__()
+        
+        if path_basis_h1 is None or path_basis_h2 is None or path_basis_md is None:
+            raise ValueError("path_basis must be provided")
 
         self.condition_type = condition_type
 
@@ -87,8 +90,9 @@ class SimpleDP3(BasePolicy):
 
         self.use_pc_color = use_pc_color
         self.pointnet_type = pointnet_type
-        cprint(f"[SDP3] use_pc_color: {self.use_pc_color}", "yellow")
-        cprint(f"[SDP3] pointnet_type: {self.pointnet_type}", "yellow")
+        cprint(f"[DiffusionUnetHybridPointcloudPolicy] use_pc_color: {self.use_pc_color}", "yellow")
+        cprint(f"[DiffusionUnetHybridPointcloudPolicy] pointnet_type: {self.pointnet_type}", "yellow")
+
 
 
         model = ConditionalUnet1D(
@@ -267,12 +271,12 @@ class SimpleDP3(BasePolicy):
 
     def compute_loss(self, batch):
         # normalize input
+
         nobs = self.normalizer.normalize(batch['obs'])
         nactions = self.normalizer['action'].normalize(batch['action'])
 
         if not self.use_pc_color:
             nobs['point_cloud'] = nobs['point_cloud'][..., :3]
-        
         
         batch_size = nactions.shape[0]
         horizon = nactions.shape[1]
@@ -382,4 +386,3 @@ class SimpleDP3(BasePolicy):
         # print(f"t6-t5: {t6-t5:.3f}")
         
         return loss, loss_dict
-

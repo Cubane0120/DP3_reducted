@@ -41,6 +41,11 @@ class DP3(BasePolicy):
             pointnet_type="pointnet",
             pointcloud_encoder_cfg=None,
             # parameters passed to step
+            collect_data=False,
+            collect_data_path=None,
+            path_basis_h1=None,
+            path_basis_h2=None,
+            path_basis_md=None,
             **kwargs):
         super().__init__()
 
@@ -99,6 +104,11 @@ class DP3(BasePolicy):
             use_down_condition=use_down_condition,
             use_mid_condition=use_mid_condition,
             use_up_condition=use_up_condition,
+            collect_data=collect_data,
+            collect_data_path=collect_data_path,
+            path_basis_h1=path_basis_h1,
+            path_basis_h2=path_basis_h2,
+            path_basis_md=path_basis_md,
         )
 
         self.obs_encoder = obs_encoder

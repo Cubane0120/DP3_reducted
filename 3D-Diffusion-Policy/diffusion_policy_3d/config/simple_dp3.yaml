@@ -18,7 +18,7 @@ dataset_obs_steps: ${n_obs_steps}
 keypoint_visible_rate: 1.0
 obs_as_global_cond: True
 
-policy:
+policy: &policy_base
   _target_: diffusion_policy_3d.policy.simple_dp3.SimpleDP3
   use_point_crop: true
   condition_type: film
@@ -72,6 +72,18 @@ policy:
     final_norm: layernorm # layernorm, none
     normal_channel: false
 
+  collect_data: False
+  collect_data_path: null
+  path_basis_h1: null
+  path_basis_h2: null
+  path_basis_md: null
+
+policy_reducted:
+  <<: *policy_base
+  path_basis_h1: True
+  path_basis_h2: True
+  path_basis_md: True
+  
 
 ema:
   _target_: diffusion_policy_3d.model.diffusion.ema_model.EMAModel
@@ -102,14 +114,14 @@ optimizer:
   eps: 1.0e-8
   weight_decay: 1.0e-6
 
-training:
+training: &training_base
   device: "cuda:0"
   seed: 42
   debug: False
   resume: True
   lr_scheduler: cosine
   lr_warmup_steps: 500
-  num_epochs: 3000
+  num_epochs: 1000 #3000
   gradient_accumulate_every: 1
   use_ema: True
   rollout_every: 200
@@ -119,6 +131,15 @@ training:
   max_train_steps: null
   max_val_steps: null
   tqdm_interval_sec: 1.0
+
+training_reducted:
+  <<: *training_base
+  lr_warmup_steps: 100
+  num_epochs: 200
+  gradient_accumulate_every: 1
+  use_ema: True
+  rollout_every: 40
+  checkpoint_every: 40
 
 logging:
   group: ${exp_name}

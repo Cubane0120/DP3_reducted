@@ -44,20 +44,29 @@ class TrainDP3Workspace:
         self._saving_thread = None
         
         # set seed
-        seed = cfg.training.seed
+        seed = cfg.training_reducted.seed
         torch.manual_seed(seed)
         np.random.seed(seed)
         random.seed(seed)
 
+        # @@@@@@@@@ need to edit
+        #breakpoint()
+
+        # cfg.policy.up_dims = [(2268, 568), (1592, 400)]
+        # cfg.policy.up_dims = [(561, 144), (260, 72)]
+        # cfg.policy._target_ = 'diffusion_policy_3d.policy.dp3_with_reduction.DP3_Reducted'
+
         # configure model
-        self.model: DP3 = hydra.utils.instantiate(cfg.policy)
+        #breakpoint()
+
+        self.model: DP3 = hydra.utils.instantiate(cfg.policy_reducted)
 
         self.ema_model: DP3 = None
-        if cfg.training.use_ema:
+        if cfg.training_reducted.use_ema:
             try:
                 self.ema_model = copy.deepcopy(self.model)
             except: # minkowski engine could not be copied. recreate it
-                self.ema_model = hydra.utils.instantiate(cfg.policy)
+                self.ema_model = hydra.utils.instantiate(cfg.policy_reducted)
 
 
         # configure training state
@@ -68,17 +77,18 @@ class TrainDP3Workspace:
         self.global_step = 0
         self.epoch = 0
 
+
     def run(self):
         cfg = copy.deepcopy(self.cfg)
         
-        if cfg.training.debug:
-            cfg.training.num_epochs = 100
-            cfg.training.max_train_steps = 10
-            cfg.training.max_val_steps = 3
-            cfg.training.rollout_every = 20
-            cfg.training.checkpoint_every = 1
-            cfg.training.val_every = 1
-            cfg.training.sample_every = 1
+        if cfg.training_reducted.debug:
+            cfg.training_reducted.num_epochs = 100
+            cfg.training_reducted.max_train_steps = 10
+            cfg.training_reducted.max_val_steps = 3
+            cfg.training_reducted.rollout_every = 20
+            cfg.training_reducted.checkpoint_every = 1
+            cfg.training_reducted.val_every = 1
+            cfg.training_reducted.sample_every = 1
             RUN_ROLLOUT = True
             RUN_CKPT = False
             verbose = True
@@ -89,12 +99,30 @@ class TrainDP3Workspace:
         
         RUN_VALIDATION = False # reduce time cost
         
+
+
+        flag = False
         # resume training
-        if cfg.training.resume:
-            lastest_ckpt_path = self.get_checkpoint_path()
+        if cfg.training_reducted.resume:
+            lastest_ckpt_path = self.get_checkpoint_path(reducted=True)
+            if lastest_ckpt_path.is_file():
+                print(f"Resuming from checkpoint_reducted {lastest_ckpt_path}")
+                self.load_checkpoint(path=lastest_ckpt_path)
+
+                flag = True
+
+        # training from unreducted model
+        if not flag:
+            lastest_ckpt_path = self.get_checkpoint_path(reducted=False)
             if lastest_ckpt_path.is_file():
                 print(f"Resuming from checkpoint {lastest_ckpt_path}")
-                self.load_checkpoint(path=lastest_ckpt_path)
+                print(f"start training model with reducction from non-reducted checkpoint")
+                self.load_checkpoint_partially(path=lastest_ckpt_path)
+            else:
+                raise FileNotFoundError(
+                    f"Checkpoint {lastest_ckpt_path} not found. "
+                    "Please run training first to create a checkpoint of non-reducted ver.")
+
 
         # configure dataset
         dataset: BaseDataset
@@ -109,17 +137,17 @@ class TrainDP3Workspace:
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
 
         self.model.set_normalizer(normalizer)
-        if cfg.training.use_ema:
+        if cfg.training_reducted.use_ema:
             self.ema_model.set_normalizer(normalizer)
 
         # configure lr scheduler
         lr_scheduler = get_scheduler(
-            cfg.training.lr_scheduler,
+            cfg.training_reducted.lr_scheduler,
             optimizer=self.optimizer,
-            num_warmup_steps=cfg.training.lr_warmup_steps,
+            num_warmup_steps=cfg.training_reducted.lr_warmup_steps,
             num_training_steps=(
-                len(train_dataloader) * cfg.training.num_epochs) \
-                    // cfg.training.gradient_accumulate_every,
+                len(train_dataloader) * cfg.training_reducted.num_epochs) \
+                    // cfg.training_reducted.gradient_accumulate_every,
             # pytorch assumes stepping LRScheduler every epoch
             # however huggingface diffusers steps it every batch
             last_epoch=self.global_step-1
@@ -127,7 +155,7 @@ class TrainDP3Workspace:
 
         # configure ema
         ema: EMAModel = None
-        if cfg.training.use_ema:
+        if cfg.training_reducted.use_ema:
             ema = hydra.utils.instantiate(
                 cfg.ema,
                 model=self.ema_model)
@@ -148,7 +176,7 @@ class TrainDP3Workspace:
         cprint("-----------------------------", "yellow")
         # configure logging
         wandb_run = wandb.init(
-            dir=str(self.output_dir),
+            dir=str(self.output_dir) + "/reducted",
             config=OmegaConf.to_container(cfg, resolve=True),
             **cfg.logging
         )
@@ -160,12 +188,12 @@ class TrainDP3Workspace:
 
         # configure checkpoint
         topk_manager = TopKCheckpointManager(
-            save_dir=os.path.join(self.output_dir, 'checkpoints'),
+            save_dir=os.path.join(self.output_dir, 'checkpoints_reducted'),
             **cfg.checkpoint.topk
         )
 
         # device transfer
-        device = torch.device(cfg.training.device)
+        device = torch.device(cfg.training_reducted.device)
         self.model.to(device)
         if self.ema_model is not None:
             self.ema_model.to(device)
@@ -177,12 +205,12 @@ class TrainDP3Workspace:
 
         # training loop
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
-        for local_epoch_idx in range(cfg.training.num_epochs):
+        for local_epoch_idx in range(cfg.training_reducted.num_epochs):
             step_log = dict()
             # ========= train for this epoch ==========
             train_losses = list()
             with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
-                    leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                    leave=False, mininterval=cfg.training_reducted.tqdm_interval_sec) as tepoch:
                 for batch_idx, batch in enumerate(tepoch):
                     t1 = time.time()
                     # device transfer
@@ -193,19 +221,19 @@ class TrainDP3Workspace:
                     # compute loss
                     t1_1 = time.time()
                     raw_loss, loss_dict = self.model.compute_loss(batch)
-                    loss = raw_loss / cfg.training.gradient_accumulate_every
+                    loss = raw_loss / cfg.training_reducted.gradient_accumulate_every
                     loss.backward()
                     
                     t1_2 = time.time()
 
                     # step optimizer
-                    if self.global_step % cfg.training.gradient_accumulate_every == 0:
+                    if self.global_step % cfg.training_reducted.gradient_accumulate_every == 0:
                         self.optimizer.step()
                         self.optimizer.zero_grad()
                         lr_scheduler.step()
                     t1_3 = time.time()
                     # update ema
-                    if cfg.training.use_ema:
+                    if cfg.training_reducted.use_ema:
                         ema.step(self.model)
                     t1_4 = time.time()
                     # logging
@@ -235,8 +263,8 @@ class TrainDP3Workspace:
                         wandb_run.log(step_log, step=self.global_step)
                         self.global_step += 1
 
-                    if (cfg.training.max_train_steps is not None) \
-                        and batch_idx >= (cfg.training.max_train_steps-1):
+                    if (cfg.training_reducted.max_train_steps is not None) \
+                        and batch_idx >= (cfg.training_reducted.max_train_steps-1):
                         break
 
             # at the end of each epoch
@@ -246,12 +274,12 @@ class TrainDP3Workspace:
 
             # ========= eval for this epoch ==========
             policy = self.model
-            if cfg.training.use_ema:
+            if cfg.training_reducted.use_ema:
                 policy = self.ema_model
             policy.eval()
 
             # run rollout
-            if (self.epoch % cfg.training.rollout_every) == 0 and RUN_ROLLOUT and env_runner is not None:
+            if (self.epoch % cfg.training_reducted.rollout_every) == 0 and RUN_ROLLOUT and env_runner is not None:
                 t3 = time.time()
                 # runner_log = env_runner.run(policy, dataset=dataset)
                 runner_log = env_runner.run(policy)
@@ -263,17 +291,17 @@ class TrainDP3Workspace:
             
                 
             # run validation
-            if (self.epoch % cfg.training.val_every) == 0 and RUN_VALIDATION:
+            if (self.epoch % cfg.training_reducted.val_every) == 0 and RUN_VALIDATION:
                 with torch.no_grad():
                     val_losses = list()
                     with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}", 
-                            leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                            leave=False, mininterval=cfg.training_reducted.tqdm_interval_sec) as tepoch:
                         for batch_idx, batch in enumerate(tepoch):
                             batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                             loss, loss_dict = self.model.compute_loss(batch)
                             val_losses.append(loss)
-                            if (cfg.training.max_val_steps is not None) \
-                                and batch_idx >= (cfg.training.max_val_steps-1):
+                            if (cfg.training_reducted.max_val_steps is not None) \
+                                and batch_idx >= (cfg.training_reducted.max_val_steps-1):
                                 break
                     if len(val_losses) > 0:
                         val_loss = torch.mean(torch.tensor(val_losses)).item()
@@ -281,7 +309,7 @@ class TrainDP3Workspace:
                         step_log['val_loss'] = val_loss
 
             # run diffusion sampling on a training batch
-            if (self.epoch % cfg.training.sample_every) == 0:
+            if (self.epoch % cfg.training_reducted.sample_every) == 0:
                 with torch.no_grad():
                     # sample trajectory from training set, and evaluate difference
                     batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
@@ -303,7 +331,7 @@ class TrainDP3Workspace:
                 step_log['test_mean_score'] = - train_loss
                 
             # checkpoint
-            if (self.epoch % cfg.training.checkpoint_every) == 0 and cfg.checkpoint.save_ckpt:
+            if (self.epoch % cfg.training_reducted.checkpoint_every) == 0 and cfg.checkpoint.save_ckpt:
                 # checkpointing
                 if cfg.checkpoint.save_last_ckpt:
                     self.save_checkpoint()
@@ -338,7 +366,7 @@ class TrainDP3Workspace:
         
         cfg = copy.deepcopy(self.cfg)
         
-        lastest_ckpt_path = self.get_checkpoint_path(tag="latest")
+        lastest_ckpt_path = self.get_checkpoint_path(reducted=True, tag="latest")
         if lastest_ckpt_path.is_file():
             cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
             self.load_checkpoint(path=lastest_ckpt_path)
@@ -350,7 +378,7 @@ class TrainDP3Workspace:
             output_dir=self.output_dir)
         assert isinstance(env_runner, BaseRunner)
         policy = self.model
-        if cfg.training.use_ema:
+        if cfg.training_reducted.use_ema:
             policy = self.ema_model
         policy.eval()
         policy.cuda()
@@ -370,13 +398,13 @@ class TrainDP3Workspace:
             output_dir = HydraConfig.get().runtime.output_dir
         return output_dir
     
-
+    #reducted ver
     def save_checkpoint(self, path=None, tag='latest', 
             exclude_keys=None,
             include_keys=None,
             use_thread=False):
         if path is None:
-            path = pathlib.Path(self.output_dir).joinpath('checkpoints', f'{tag}.ckpt')
+            path = pathlib.Path(self.output_dir).joinpath('checkpoints_reducted', f'{tag}.ckpt')
         else:
             path = pathlib.Path(path)
         if exclude_keys is None:
@@ -412,13 +440,18 @@ class TrainDP3Workspace:
         torch.cuda.empty_cache()
         return str(path.absolute())
     
-    def get_checkpoint_path(self, tag='latest'):
+    def get_checkpoint_path(self, tag='latest', reducted=False):
+        if not reducted:
+            path_name = "checkpoints"
+        else:
+            path_name = "checkpoints_reducted"
+
         if tag=='latest':
-            return pathlib.Path(self.output_dir).joinpath('checkpoints', f'{tag}.ckpt')
+            return pathlib.Path(self.output_dir).joinpath(path_name, f'{tag}.ckpt')
         elif tag=='best': 
             # the checkpoints are saved as format: epoch={}-test_mean_score={}.ckpt
             # find the best checkpoint
-            checkpoint_dir = pathlib.Path(self.output_dir).joinpath('checkpoints')
+            checkpoint_dir = pathlib.Path(self.output_dir).joinpath(path_name)
             all_checkpoints = os.listdir(checkpoint_dir)
             best_ckpt = None
             best_score = -1e10
@@ -429,7 +462,7 @@ class TrainDP3Workspace:
                 if score > best_score:
                     best_ckpt = ckpt
                     best_score = score
-            return pathlib.Path(self.output_dir).joinpath('checkpoints', best_ckpt)
+            return pathlib.Path(self.output_dir).joinpath(path_name, best_ckpt)
         else:
             raise NotImplementedError(f"tag {tag} not implemented")
             
@@ -447,7 +480,6 @@ class TrainDP3Workspace:
         for key in include_keys:
             if key in payload['pickles']:
                 self.__dict__[key] = dill.loads(payload['pickles'][key])
-    
     def load_checkpoint(self, path=None, tag='latest',
             exclude_keys=None, 
             include_keys=None, 
@@ -460,6 +492,31 @@ class TrainDP3Workspace:
         self.load_payload(payload, 
             exclude_keys=exclude_keys, 
             include_keys=include_keys)
+        return payload
+    
+    def load_payload_partially(self, payload, **kwargs):
+        from collections import OrderedDict
+
+        for key, value in payload['state_dicts'].items():
+            if key == 'model':
+                ckpt_sd = value
+                filtered_sd = OrderedDict(
+                    (k, v) for k, v in ckpt_sd.items()
+                    if ('up_modules' not in k) and ('final_conv' not in k)
+                )
+
+                self.model.load_state_dict(filtered_sd, strict=False, **kwargs)
+
+
+    def load_checkpoint_partially(self, path=None, tag='latest',
+            **kwargs):
+        if path is None:
+            path = self.get_checkpoint_path(tag=tag)
+        else:
+            path = pathlib.Path(path)
+        payload = torch.load(path.open('rb'), pickle_module=dill, map_location='cpu')
+        self.load_payload_partially(payload)
+
         return payload
     
     @classmethod
@@ -504,7 +561,7 @@ class TrainDP3Workspace:
         if env_runner is not None:
             assert isinstance(env_runner, BaseRunner)
         
-        cfg.logging.name = str(cfg.logging.name) + "_eval"
+        cfg.logging.name = str(cfg.logging.name) + "_eval_reducted"
         cfg.logging.resume = str("never")
         cprint("-----------------------------", "yellow")
         cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
@@ -522,7 +579,7 @@ class TrainDP3Workspace:
             }
         )
         
-        lastest_ckpt_path = self.get_checkpoint_path(tag="latest")
+        lastest_ckpt_path = self.get_checkpoint_path(reducted=True, tag="latest")
         if lastest_ckpt_path.is_file():
             cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
             self.load_checkpoint(path=lastest_ckpt_path)
@@ -534,7 +591,7 @@ class TrainDP3Workspace:
             output_dir=self.output_dir)
         assert isinstance(env_runner, BaseRunner)
         policy = self.model
-        if cfg.training.use_ema:
+        if cfg.training_reducted.use_ema:
             policy = self.ema_model
         policy.eval()
         policy.cuda()
@@ -547,35 +604,6 @@ class TrainDP3Workspace:
             if isinstance(value, float):
                 cprint(f"{key}: {value:.4f}", 'magenta')
     
-    def collect_data(self):
-        # load the latest checkpoint
-
-        cfg = copy.deepcopy(self.cfg)
-
-        lastest_ckpt_path = self.get_checkpoint_path(tag="latest")
-        if lastest_ckpt_path.is_file():
-            cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
-            self.load_checkpoint(path=lastest_ckpt_path)
-        else:
-            assert False, f"Checkpoint {lastest_ckpt_path} does not exist. Please train the model first."
-
-        # configure env
-        env_runner: BaseRunner
-        env_runner = hydra.utils.instantiate(
-            cfg.task.env_runner,
-            output_dir=self.output_dir)
-        assert isinstance(env_runner, BaseRunner)
-        policy = self.model
-        if cfg.training.use_ema:
-            policy = self.ema_model
-        policy.eval()
-        policy.cuda()
-
-        #runner_log = env_runner.run(policy)
-        env_runner.run(policy)
-
-
-        cprint(f"finish to collect data")
 
 @hydra.main(
     version_base=None,
