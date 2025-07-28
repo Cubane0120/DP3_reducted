@@ -32,6 +32,11 @@ from diffusion_policy_3d.common.pytorch_util import dict_apply, optimizer_to
 from diffusion_policy_3d.model.diffusion.ema_model import EMAModel
 from diffusion_policy_3d.model.common.lr_scheduler import get_scheduler
 
+from torch.profiler import profile, ProfilerActivity, schedule, record_function
+from torch._C._profiler import RecordScope
+from torch.autograd.profiler_util import EventList
+
+
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 class TrainDP3Workspace:
@@ -605,7 +610,130 @@ class TrainDP3Workspace:
         for key, value in runner_log.items():
             if isinstance(value, float):
                 cprint(f"{key}: {value:.4f}", 'magenta')
-    
+
+    def profile_model(self):
+        cfg = copy.deepcopy(self.cfg)
+        
+        # configure dataset
+        dataset: BaseDataset
+        dataset = hydra.utils.instantiate(cfg.task.dataset)
+
+        assert isinstance(dataset, BaseDataset), print(f"dataset must be BaseDataset, got {type(dataset)}")
+        train_dataloader = DataLoader(dataset, **cfg.dataloader)
+        normalizer = dataset.get_normalizer()
+
+        self.model.set_normalizer(normalizer)
+        if cfg.training.use_ema:
+            self.ema_model.set_normalizer(normalizer)
+
+        # configure lr scheduler
+        lr_scheduler = get_scheduler(
+            cfg.training.lr_scheduler,
+            optimizer=self.optimizer,
+            num_warmup_steps=cfg.training.lr_warmup_steps,
+            num_training_steps=(
+                len(train_dataloader) * cfg.training.num_epochs) \
+                    // cfg.training.gradient_accumulate_every,
+            # pytorch assumes stepping LRScheduler every epoch
+            # however huggingface diffusers steps it every batch
+            last_epoch=self.global_step-1
+        )
+
+        # configure ema
+        ema: EMAModel = None
+        if cfg.training.use_ema:
+            ema = hydra.utils.instantiate(
+                cfg.ema,
+                model=self.ema_model)
+
+        # configure env
+        env_runner: BaseRunner
+        env_runner = hydra.utils.instantiate(
+            cfg.task.env_runner,
+            output_dir=self.output_dir)
+
+        if env_runner is not None:
+            assert isinstance(env_runner, BaseRunner)
+
+        # device transfer
+        device = torch.device(cfg.training.device)
+        self.model.to(device)
+        if self.ema_model is not None:
+            self.ema_model.to(device)
+        optimizer_to(self.optimizer, device)
+
+        # save batch for sampling
+        train_sampling_batch = None
+
+        # training loop
+        with profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=schedule(wait=1, warmup=1, active=10, repeat=1),
+            record_shapes=True,
+        ) as prof_train:
+            # ========= train for 1 epoch ==========
+            for local_epoch_idx in range(1):
+                train_losses = list()
+                with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
+                        leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                    for batch_idx, batch in enumerate(tepoch):
+                        t1 = time.time()
+                        # device transfer
+                        batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+                        if train_sampling_batch is None:
+                            train_sampling_batch = batch
+                    
+                        # compute loss
+                        raw_loss, loss_dict = self.model.compute_loss(batch)
+                        loss = raw_loss / cfg.training.gradient_accumulate_every
+                        loss.backward()
+
+                        # step optimizer
+                        if self.global_step % cfg.training.gradient_accumulate_every == 0:
+                            self.optimizer.step()
+                            self.optimizer.zero_grad()
+                            lr_scheduler.step()
+                        # update ema
+                        if cfg.training.use_ema:
+                            ema.step(self.model)
+                        # logging
+                        raw_loss_cpu = raw_loss.item()
+                        tepoch.set_postfix(loss=raw_loss_cpu, refresh=False)
+                        train_losses.append(raw_loss_cpu)
+
+                        is_last_batch = (batch_idx == (len(train_dataloader)-1))
+                        if not is_last_batch:
+                            # log of last step is combined with validation and rollout
+                            self.global_step += 1
+
+                        if (cfg.training.max_train_steps is not None) \
+                            and batch_idx >= (cfg.training.max_train_steps-1):
+                            break
+            prof_train.step()
+        print(prof_train.key_averages().table(
+            sort_by="self_cuda_time_total", row_limit=10
+        ))
+        
+        # eval loop
+        with profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=schedule(wait=1, warmup=1, active=10, repeat=1),
+            record_shapes=True,
+        ) as prof_eval:
+            # ========= eval for 1 epoch ==========
+            policy = self.model
+            if cfg.training.use_ema:
+                policy = self.ema_model
+            policy.eval()
+            policy.cuda()
+            env_runner.run(policy)
+            prof_eval.step()
+
+
+        print(prof_eval.key_averages().table(
+            sort_by="self_cuda_time_total", row_limit=10
+        ))
+        
 
 @hydra.main(
     version_base=None,

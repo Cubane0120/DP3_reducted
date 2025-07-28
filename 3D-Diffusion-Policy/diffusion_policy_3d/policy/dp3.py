@@ -18,6 +18,8 @@ from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.model_util import print_params
 from diffusion_policy_3d.model.vision.pointnet_extractor import DP3Encoder
 
+from torch.profiler import profile, record_function, ProfilerActivity, schedule, tensorboard_trace_handler
+
 class DP3(BasePolicy):
     def __init__(self, 
             shape_meta: dict,
@@ -339,11 +341,11 @@ class DP3(BasePolicy):
         noisy_trajectory[condition_mask] = cond_data[condition_mask]
 
         # Predict the noise residual
-        
-        pred = self.model(sample=noisy_trajectory, 
-                        timestep=timesteps, 
-                            local_cond=local_cond, 
-                            global_cond=global_cond)
+        with record_function("prediction by model"):
+            pred = self.model(sample=noisy_trajectory, 
+                            timestep=timesteps, 
+                                local_cond=local_cond, 
+                                global_cond=global_cond)
 
 
         pred_type = self.noise_scheduler.config.prediction_type 

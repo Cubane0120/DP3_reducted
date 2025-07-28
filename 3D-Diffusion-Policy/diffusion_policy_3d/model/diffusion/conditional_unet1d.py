@@ -13,6 +13,8 @@ from diffusion_policy_3d.common.model_util import print_params
 import numpy as np
 import os
 
+from torch.profiler import record_function
+
 logger = logging.getLogger(__name__)
 
 class CrossAttention(nn.Module):
@@ -211,28 +213,30 @@ class ConditionalUnet1D(nn.Module):
             k_h2 = reductor_t.shape[1]
         else:
             k_h2 = down_dims[2]
-        if path_basis_md is not None:
-            if not os.path.isfile(path_basis_md):
-                raise FileNotFoundError(f"{path_basis_md} not found")
-            # reductor_np = np.load(path_basis)
-            # reductor_t = torch.from_numpy(reductor_np)
-            # #self.reductor= self.reductor.float()   
-            # self.register_buffer("reductor", reductor_t) 
+        
+        #for ver 2
+        # if path_basis_md is not None:
+        #     if not os.path.isfile(path_basis_md):
+        #         raise FileNotFoundError(f"{path_basis_md} not found")
+        #     # reductor_np = np.load(path_basis)
+        #     # reductor_t = torch.from_numpy(reductor_np)
+        #     # #self.reductor= self.reductor.float()   
+        #     # self.register_buffer("reductor", reductor_t) 
 
-            reductor_np = np.load(path_basis_md)
-            reductor_t  = torch.from_numpy(reductor_np)
-            # Conv1d 모듈 생성
-            self.reductor_md_conv = nn.Conv1d(
-                in_channels= reductor_t.shape[0], 
-                out_channels=reductor_t.shape[1],
-                kernel_size=1,
-                bias=False
-            )
-            with torch.no_grad():
-                self.reductor_md_conv.weight.copy_(reductor_t.t().unsqueeze(-1))
-            k_md = reductor_t.shape[1]
-        else:
-            k_md = down_dims[2]
+        #     reductor_np = np.load(path_basis_md)
+        #     reductor_t  = torch.from_numpy(reductor_np)
+        #     # Conv1d 모듈 생성
+        #     self.reductor_md_conv = nn.Conv1d(
+        #         in_channels= reductor_t.shape[0], 
+        #         out_channels=reductor_t.shape[1],
+        #         kernel_size=1,
+        #         bias=False
+        #     )
+        #     with torch.no_grad():
+        #         self.reductor_md_conv.weight.copy_(reductor_t.t().unsqueeze(-1))
+        #     k_md = reductor_t.shape[1]
+        # else:
+        #     k_md = down_dims[2]
 
         self.path_basis_h1 = path_basis_h1
         self.path_basis_h2 = path_basis_h2
@@ -431,85 +435,90 @@ class ConditionalUnet1D(nn.Module):
         global_cond: (B,global_cond_dim)
         output: (B,T,input_dim)
         """
-        #breakpoint()
-        sample = einops.rearrange(sample, 'b h t -> b t h')
+        with record_function("RF|init_etc"):
+            #breakpoint()
+            sample = einops.rearrange(sample, 'b h t -> b t h')
 
-        # 1. time
-        timesteps = timestep
-        if not torch.is_tensor(timesteps):
-            # TODO: this requires sync between CPU and GPU. So try to pass timesteps as tensors if you can
-            timesteps = torch.tensor([timesteps], dtype=torch.long, device=sample.device)
-        elif torch.is_tensor(timesteps) and len(timesteps.shape) == 0:
-            timesteps = timesteps[None].to(sample.device)
-        # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
-        timesteps = timesteps.expand(sample.shape[0])
+            # 1. time
+            timesteps = timestep
+            if not torch.is_tensor(timesteps):
+                # TODO: this requires sync between CPU and GPU. So try to pass timesteps as tensors if you can
+                timesteps = torch.tensor([timesteps], dtype=torch.long, device=sample.device)
+            elif torch.is_tensor(timesteps) and len(timesteps.shape) == 0:
+                timesteps = timesteps[None].to(sample.device)
+            # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
+            timesteps = timesteps.expand(sample.shape[0])
 
-        timestep_embed = self.diffusion_step_encoder(timesteps)
-        if global_cond is not None:
-            if self.condition_type == 'cross_attention':
-                timestep_embed = timestep_embed.unsqueeze(1).expand(-1, global_cond.shape[1], -1)
-            global_feature = torch.cat([timestep_embed, global_cond], axis=-1)
+            timestep_embed = self.diffusion_step_encoder(timesteps)
+            if global_cond is not None:
+                if self.condition_type == 'cross_attention':
+                    timestep_embed = timestep_embed.unsqueeze(1).expand(-1, global_cond.shape[1], -1)
+                global_feature = torch.cat([timestep_embed, global_cond], axis=-1)
 
 
-        # encode local features
-        h_local = list()
-        if local_cond is not None:
-            local_cond = einops.rearrange(local_cond, 'b h t -> b t h')
-            resnet, resnet2 = self.local_cond_encoder
-            x = resnet(local_cond, global_feature)
-            h_local.append(x)
-            x = resnet2(local_cond, global_feature)
-            h_local.append(x)
+            # encode local features
+            h_local = list()
+            if local_cond is not None:
+                local_cond = einops.rearrange(local_cond, 'b h t -> b t h')
+                resnet, resnet2 = self.local_cond_encoder
+                x = resnet(local_cond, global_feature)
+                h_local.append(x)
+                x = resnet2(local_cond, global_feature)
+                h_local.append(x)
         
-        x = sample
-        # breakpoint()
-        h = []
-        for idx, (resnet, resnet2, downsample) in enumerate(self.down_modules):
-            if self.use_down_condition:
-                x = resnet(x, global_feature)
-                if idx == 0 and len(h_local) > 0:
-                    x = x + h_local[0]
-                x = resnet2(x, global_feature)
-            else:
-                x = resnet(x)
-                if idx == 0 and len(h_local) > 0:
-                    x = x + h_local[0]
-                x = resnet2(x)
-            
-            # ver 2
-            if self.path_basis_h1 is not None and idx == 1:
-                x = self.reductor_h1_conv(x)
-            elif self.path_basis_h2 is not None and idx == 2:
-                x = self.reductor_h2_conv(x)
-
-            h.append(x)
-            if self.collect_data and idx!=0:
-                # save bottleneck_out
-                latent = x.detach().cpu().numpy()  # (1,1024,8)/(1,2048,4)
-                latent = latent.squeeze(0)
-                #np.save(f"/home/hsh/3D-Diffusion-Policy/data_bottleneck_out/latent_sample_{self.idx_save}.npy", latent)
-                if self.collect_data_path is None:
-                    raise ValueError("collect_data_path must be specified when collect_data is True")
-                if not os.path.exists(self.collect_data_path):
-                    os.makedirs(self.collect_data_path)
-                
-                if idx == 1:
-                    np.save(f"{self.collect_data_path}/latent_h1_{self.idx_save_h1}.npy", latent)
-                    self.idx_save_h1+=1
-                elif idx == 2:
-                    np.save(f"{self.collect_data_path}/latent_h2_{self.idx_save_h2}.npy", latent)
-                    self.idx_save_h2+=1
-                else:
-                    raise ValueError(f"idx {idx} in down_modules is not supported for collect_data")
-            x = downsample(x)
+        with record_function("RF|down_module"):
+            x = sample
             # breakpoint()
+            h = []
+            for idx, (resnet, resnet2, downsample) in enumerate(self.down_modules):
+                if self.use_down_condition:
+                    x = resnet(x, global_feature)
+                    if idx == 0 and len(h_local) > 0:
+                        x = x + h_local[0]
+                    x = resnet2(x, global_feature)
+                else:
+                    x = resnet(x)
+                    if idx == 0 and len(h_local) > 0:
+                        x = x + h_local[0]
+                    x = resnet2(x)
+                
+                # ver 2
+                if self.path_basis_h1 is not None and idx == 1:
+                    x_ = self.reductor_h1_conv(x)
+                    h.append(x_)
+                elif self.path_basis_h2 is not None and idx == 2:
+                    x= self.reductor_h2_conv(x)
+                    h.append(x)
+                else:
+                    h.append(x)
+                if self.collect_data and idx!=0:
+                    # save bottleneck_out
+                    latent = x.detach().cpu().numpy()  # (1,1024,8)/(1,2048,4)
+                    latent = latent.squeeze(0)
+                    #np.save(f"/home/hsh/3D-Diffusion-Policy/data_bottleneck_out/latent_sample_{self.idx_save}.npy", latent)
+                    if self.collect_data_path is None:
+                        raise ValueError("collect_data_path must be specified when collect_data is True")
+                    if not os.path.exists(self.collect_data_path):
+                        os.makedirs(self.collect_data_path)
+                    
+                    if idx == 1:
+                        np.save(f"{self.collect_data_path}/latent_h1_{self.idx_save_h1}.npy", latent)
+                        self.idx_save_h1+=1
+                    elif idx == 2:
+                        np.save(f"{self.collect_data_path}/latent_h2_{self.idx_save_h2}.npy", latent)
+                        self.idx_save_h2+=1
+                    else:
+                        raise ValueError(f"idx {idx} in down_modules is not supported for collect_data")
+                x = downsample(x)
+                # breakpoint()
 
         # breakpoint()
-        for mid_module in self.mid_modules:
-            if self.use_mid_condition:
-                x = mid_module(x, global_feature)
-            else:
-                x = mid_module(x)
+        with record_function("RF|mid_module"):
+            for mid_module in self.mid_modules:
+                if self.use_mid_condition:
+                    x = mid_module(x, global_feature)
+                else:
+                    x = mid_module(x)
         if self.collect_data:
             # save bottleneck_out
             latent = x.detach().cpu().numpy()  # (1,2048,4)
@@ -521,34 +530,36 @@ class ConditionalUnet1D(nn.Module):
                 os.makedirs(self.collect_data_path)
             np.save(f"{self.collect_data_path}/latent_md_{self.idx_save_md}.npy", latent)
             self.idx_save_md+=1
+            
+        with record_function("RF|up_module"):
+            for idx, (resnet, resnet2, upsample) in enumerate(self.up_modules):
+                # if self.path_basis_h2 is not None and idx == 0:
+                #     h_reducted = self.reductor_h2_conv(h.pop())
+                #     x = torch.cat((x, h_reducted), dim=1)
+                # elif self.path_basis_h1 is not None and idx == 1:
+                #     h_reducted = self.reductor_h1_conv(h.pop())
+                #     x = torch.cat((x, h_reducted), dim=1)
+                # else:
+                #     x = torch.cat((x, h.pop()), dim=1)
 
-        for idx, (resnet, resnet2, upsample) in enumerate(self.up_modules):
-            # if self.path_basis_h2 is not None and idx == 0:
-            #     h_reducted = self.reductor_h2_conv(h.pop())
-            #     x = torch.cat((x, h_reducted), dim=1)
-            # elif self.path_basis_h1 is not None and idx == 1:
-            #     h_reducted = self.reductor_h1_conv(h.pop())
-            #     x = torch.cat((x, h_reducted), dim=1)
-            # else:
-            #     x = torch.cat((x, h.pop()), dim=1)
+                #ver 2
+                x = torch.cat((x, h.pop()), dim=1)
 
-            #ver 2
-            x = torch.cat((x, h.pop()), dim=1)
-
-            if self.use_up_condition: 
-                x = resnet(x, global_feature)
-                if idx == len(self.up_modules) and len(h_local) > 0:
-                    x = x + h_local[1]
-                x = resnet2(x, global_feature)
-            else:
-                x = resnet(x)
-                if idx == len(self.up_modules) and len(h_local) > 0:
-                    x = x + h_local[1]
-                x = resnet2(x)
-            x = upsample(x)
-            # breakpoint()    
+                if self.use_up_condition: 
+                    x = resnet(x, global_feature)
+                    if idx == len(self.up_modules) and len(h_local) > 0:
+                        x = x + h_local[1]
+                    x = resnet2(x, global_feature)
+                else:
+                    x = resnet(x)
+                    if idx == len(self.up_modules) and len(h_local) > 0:
+                        x = x + h_local[1]
+                    x = resnet2(x)
+                x = upsample(x)
+                # breakpoint()    
         # breakpoint()
-        x = self.final_conv(x)
+        with record_function("RF|final_conv"):
+            x = self.final_conv(x)
 
         x = einops.rearrange(x, 'b t h -> b h t')
         # breakpoint()

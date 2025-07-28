@@ -3,6 +3,7 @@ if __name__ == "__main__":
     import os
     import pathlib
 
+    os.environ["OMP_NUM_THREADS"] = "32"
     ROOT_DIR = str(pathlib.Path(__file__).parent.parent.parent)
     sys.path.append(ROOT_DIR)
     os.chdir(ROOT_DIR)
@@ -15,7 +16,7 @@ import numpy as np
 import glob
 import matplotlib.pyplot as plt
 from sklearn.decomposition import TruncatedSVD
-
+import cupy as cp
 
 # prefix = "latent_h1"
 # prefix = "latent_h2"
@@ -47,9 +48,11 @@ def main(cfg):
         all_latents = all_latents.transpose(0, 2, 1)
         # 2) (N, 4, 2048) → (N*4, 2048)
         X = all_latents.reshape(-1, dim_out)
+        X_gpu = cp.asarray(X)
+        #U, S, VT = np.linalg.svd(X, full_matrices=False)  # S: (min(N, D),)
+        U, S, VT = cp.linalg.svd(X_gpu, full_matrices=False)
 
-        U, S, VT = np.linalg.svd(X, full_matrices=False)  # S: (min(N, D),)
-
+        print(S.shape)
         # 4. Plot explained variance ratio
         # explained_variance_ratio = S**2 / np.sum(S**2)
         # accumulate_var_ratio = np.cumsum(explained_variance_ratio)
@@ -68,20 +71,26 @@ def main(cfg):
         # plt.show()
 
         # 5. Truncate to top-K components
-
-        explained_variance_ratio = S**2 / np.sum(S**2)
-        accumulate_var_ratio = np.cumsum(explained_variance_ratio)
+        #explained_variance_ratio = S**2 / np.sum(S**2)
+        explained_variance_ratio = S**2 / cp.sum(S**2)
+        #accumulate_var_ratio = np.cumsum(explained_variance_ratio)
+        accumulate_var_ratio = cp.cumsum(explained_variance_ratio)
         idx_list = []
         threshold = 0.99
-        k = np.searchsorted(accumulate_var_ratio, threshold, side='left')
+        print("Threshold : ",threshold)
+        #k = np.searchsorted(accumulate_var_ratio, threshold, side='left')
+        k = int(cp.searchsorted(accumulate_var_ratio, cp.array([threshold]), side='left')[0])
+        if prefix == "latent_h2":
+            k = (k//8) * 8  
+        
         print(f"Number of components to retain {threshold*100}% variance: {k}")
 
-        U_k = U[:, :k]                # (N, k)
-        S_k = S[:k]                   # (k,)
+
         VT_k = VT[:k, :]              # (k, D)
         V_k = VT_k.T                  # (D, k) 
-
-        np.save(data_path+f"_svd_basis_{prefix}.npy", V_k)  # shape: (D, k)
+        V_k_cpu = cp.asnumpy(V_k)
+        #np.save(data_path+f"_svd_basis_{prefix}.npy", V_k)  # shape: (D, k)        
+        np.save(data_path+f"_svd_basis_{prefix}.npy", V_k_cpu)  # shape: (D, k)
 
 if __name__ == "__main__":
     main()
