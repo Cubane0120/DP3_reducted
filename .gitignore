@@ -46,3 +46,5 @@ nohup.out
 output/
 
 custom_conda
+eval_logs*/
+logs_backup/

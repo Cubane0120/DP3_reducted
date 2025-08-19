@@ -22,6 +22,10 @@ run_dir="data/outputs/${exp_name}_seed${seed}"
 gpu_id=${5}
 echo -e "\033[33mgpu id (to use): ${gpu_id}\033[0m"
 
+threshold=${6} 
+#threshold="0.99" 
+#0.995
+
 
 if [ $DEBUG = True ]; then
     wandb_mode=offline
@@ -48,7 +52,8 @@ python train_with_reduction.py --config-name=${config_name}.yaml \
                             training_reducted.device="cuda:0" \
                             exp_name=${exp_name} \
                             logging.mode=${wandb_mode} \
+                            logging.name=${exp_name}_${seed}_reducted_threshold_${threshold} \
                             checkpoint.save_ckpt=${save_ckpt} \
-                            policy_reducted.path_basis_h1=${run_dir}/collect_data_svd_basis_latent_h1.npy \
-                            policy_reducted.path_basis_h2=${run_dir}/collect_data_svd_basis_latent_h2.npy \
-                            policy_reducted.path_basis_md=${run_dir}/collect_data_svd_basis_latent_md.npy \
+                            policy_reducted.path_basis_h1=${run_dir}/basis/threshold_${threshold}/latent_h1.npy \
+                            policy_reducted.path_basis_h2=${run_dir}/basis/threshold_${threshold}/latent_h2.npy \
+                            threshold=${threshold} \

@@ -7,16 +7,16 @@ task_name: ${task.name}
 shape_meta: ${task.shape_meta}
 exp_name: "debug"
 
-horizon: 4
-# horizon: 16
+# horizon: 4
+horizon: 16
 n_obs_steps: 2
 # n_action_steps: 3
-# n_action_steps: 8
-n_action_steps: 4
+n_action_steps: 8
 n_latency_steps: 0
 dataset_obs_steps: ${n_obs_steps}
 keypoint_visible_rate: 1.0
 obs_as_global_cond: True
+threshold: null
 
 policy: &policy_base
   _target_: diffusion_policy_3d.policy.dp3.DP3
@@ -72,13 +72,11 @@ policy: &policy_base
   collect_data_path: null
   path_basis_h1: null
   path_basis_h2: null
-  path_basis_md: null
 
 policy_reducted:
   <<: *policy_base
   path_basis_h1: True
   path_basis_h2: True
-  path_basis_md: True
   
 
 ema:
@@ -103,12 +101,15 @@ val_dataloader:
   pin_memory: True
   persistent_workers: False
 
-optimizer:
+optimizer: &optimizer_base
   _target_: torch.optim.AdamW
   lr: 1.0e-4
   betas: [0.95, 0.999]
   eps: 1.0e-8
   weight_decay: 1.0e-6
+
+optimizer_reducted:
+  <<: *optimizer_base
 
 training: &training_base
   device: "cuda:0"
@@ -116,28 +117,31 @@ training: &training_base
   debug: False
   resume: True
   lr_scheduler: cosine
-  lr_warmup_steps: 500
-  num_epochs: 3000 #3000 ardoit, 1000 metaworld
+  lr_warmup_steps: 200
+  num_epochs: 1000 #3000 ardoit, 1000 metaworld
   gradient_accumulate_every: 1
   use_ema: True
-  rollout_every: 200
-  checkpoint_every: 200
+  rollout_every: 50
+  checkpoint_every: 50
   val_every: 1
   sample_every: 5
   max_train_steps: null
   max_val_steps: null
   tqdm_interval_sec: 1.0
+  load_eval_checkpoint_type : latest
 
 training_reducted:
   <<: *training_base
-  lr_warmup_steps: 100
-  num_epochs: 200
+  lr_warmup_steps: 50
+  num_epochs: 500
   gradient_accumulate_every: 1
   use_ema: True
-  rollout_every: 40
-  checkpoint_every: 40
+  rollout_every: 25
+  checkpoint_every: 25
+  load_eval_checkpoint_type : latest
+  load_origin_checkpoint_type : latest #best #or latest
 
-logging:
+logging: &logging_base
   group: ${exp_name}
   id: null
   mode: online

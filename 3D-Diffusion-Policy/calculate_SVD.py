@@ -17,11 +17,13 @@ import glob
 import matplotlib.pyplot as plt
 from sklearn.decomposition import TruncatedSVD
 import cupy as cp
+import pathlib
 
 # prefix = "latent_h1"
 # prefix = "latent_h2"
 # prefix = "latent_md"
-prefixes = ["latent_h1", "latent_h2", "latent_md"]
+prefixes = ["latent_h1", "latent_h2"]#, "latent_md"]
+thresholds = [0.99, 0.95, 0.9]
 
 @hydra.main(
     version_base=None,
@@ -40,7 +42,10 @@ def main(cfg):
             print(f"Found {len(file_paths)} files in {data_path}")
 
         all_latents = [np.load(f) for f in file_paths]  # list of (1024, 8) / (2048, 4)
-        all_latents = np.stack(all_latents)  # shape: (N, 1024, 8) / (N, 2048, 4)
+        # breakpoint()
+        #@ when output tensors from train data(batch not 1)
+        all_latents = np.concatenate([np.asarray(b)[None, ...] for row in all_latents for b in row],axis=0)
+        # all_latents = np.stack(all_latents)  # shape: (N, 1024, 8) / (N, 2048, 4)
         print(f"Shape of all_latents: {all_latents.shape}")
         dim_out = all_latents.shape[1]  # 1024 or 2048
 
@@ -75,22 +80,27 @@ def main(cfg):
         explained_variance_ratio = S**2 / cp.sum(S**2)
         #accumulate_var_ratio = np.cumsum(explained_variance_ratio)
         accumulate_var_ratio = cp.cumsum(explained_variance_ratio)
-        idx_list = []
-        threshold = 0.99
-        print("Threshold : ",threshold)
-        #k = np.searchsorted(accumulate_var_ratio, threshold, side='left')
-        k = int(cp.searchsorted(accumulate_var_ratio, cp.array([threshold]), side='left')[0])
-        if prefix == "latent_h2":
-            k = (k//8) * 8  
-        
-        print(f"Number of components to retain {threshold*100}% variance: {k}")
 
+        data_dir = pathlib.Path(data_path).parent / "basis"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        for threshold in thresholds:
+            print("Threshold : ",threshold)
+            #k = np.searchsorted(accumulate_var_ratio, threshold, side='left')
+            k_raw = int(cp.searchsorted(accumulate_var_ratio, cp.array([threshold]), side='left')[0])
+            k = ( (k_raw-1)//8 + 1 ) * 8
 
-        VT_k = VT[:k, :]              # (k, D)
-        V_k = VT_k.T                  # (D, k) 
-        V_k_cpu = cp.asnumpy(V_k)
-        #np.save(data_path+f"_svd_basis_{prefix}.npy", V_k)  # shape: (D, k)        
-        np.save(data_path+f"_svd_basis_{prefix}.npy", V_k_cpu)  # shape: (D, k)
+            
+            print(f"Number of components to retain {threshold*100}% variance: {k}, raw: {k_raw}")
+
+            #{str(threshold)}
+            VT_k = VT[:k, :]              # (k, D)
+            V_k = VT_k.T                  # (D, k) 
+            V_k_cpu = cp.asnumpy(V_k)
+            
+            save_dir = data_dir / f"threshold_{str(threshold)}"
+            save_dir.mkdir(parents=True, exist_ok=True)
+            #np.save(data_path+f"_svd_basis_{prefix}.npy", V_k)  # shape: (D, k)        
+            np.save(str(save_dir)+f"/{prefix}.npy", V_k_cpu)  # shape: (D, k)
 
 if __name__ == "__main__":
     main()

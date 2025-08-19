@@ -1,0 +1,12 @@
+gen demo 생략
+
+bash scripts/train_policy.sh dp3 metaworld_stick-pull 0806 0 0
+bash scripts/eval_to_collect_data.sh dp3 metaworld_stick-pull 0806 0 0
+bash scripts/calculated_SVD.sh dp3 metaworld_stick-pull 0806 0 0
+bash scripts/train_policy_with_reduction.sh dp3 metaworld_stick-pull 0806 0 0
+
+
+bash scripts/train_policy.sh flowpolicy metaworld_stick-pull 0806 0 0
+bash scripts/eval_to_collect_data.sh flowpolicy metaworld_stick-pull 0806 0 0
+bash scripts/calculated_SVD.sh flowpolicy metaworld_stick-pull 0806 0 0
+bash scripts/train_policy_with_reduction.sh flowpolicy metaworld_stick-pull 0806 0 0

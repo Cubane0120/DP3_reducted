@@ -38,10 +38,14 @@ class FlowPolicy(BasePolicy):
             encoder_output_dim=256,
             crop_shape=None,
             use_pc_color=False,
-            pointnet_type="mlp",
+            pointnet_type="pointnet",
             pointcloud_encoder_cfg=None,
             Conditional_ConsistencyFM=None,           
             eta=0.01,
+            collect_data=False,
+            collect_data_path=None,
+            path_basis_h1=None,
+            path_basis_h2=None,
             **kwargs):
         super().__init__()
 
@@ -100,8 +104,11 @@ class FlowPolicy(BasePolicy):
             use_down_condition=use_down_condition,
             use_mid_condition=use_mid_condition,
             use_up_condition=use_up_condition,
+            collect_data=collect_data,
+            collect_data_path=collect_data_path,
+            path_basis_h1=path_basis_h1,
+            path_basis_h2=path_basis_h2,
         )
-
         self.obs_encoder = obs_encoder
         self.model = model
         

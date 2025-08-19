@@ -15,6 +15,8 @@ run_dir="data/outputs/${exp_name}_seed${seed}"
 
 gpu_id=${5}
 
+threshold=${6} 
+#threshold="0.99" 
 
 cd 3D-Diffusion-Policy
 
@@ -30,7 +32,6 @@ python eval_with_reduction.py --config-name=${config_name}.yaml \
                             exp_name=${exp_name} \
                             logging.mode=${wandb_mode} \
                             checkpoint.save_ckpt=${save_ckpt} \
-                            policy_reducted.path_basis_h1=${run_dir}/collect_data_svd_basis_latent_h1.npy \
-                            policy_reducted.path_basis_h2=${run_dir}/collect_data_svd_basis_latent_h2.npy \
-                            policy_reducted.path_basis_md=${run_dir}/collect_data_svd_basis_latent_md.npy \
-
+                            policy_reducted.path_basis_h1=${run_dir}/basis/threshold_${threshold}/latent_h1.npy \
+                            policy_reducted.path_basis_h2=${run_dir}/basis/threshold_${threshold}/latent_h2.npy \
+                            threshold=${threshold} \

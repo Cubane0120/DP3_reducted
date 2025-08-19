@@ -2,7 +2,7 @@
 import abc
 import torch
 import numpy as np
-from flow_policy_3d.models import utils as mutils
+from diffusion_policy_3d.models import utils as mutils
 
 
 class ConsistencyFM():

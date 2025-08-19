@@ -67,7 +67,7 @@ class TrainDP3Workspace:
 
         # configure training state
         self.global_step = 0
-        self.epoch = 0
+        self.epoch = 1
 
     def run(self):
         cfg = copy.deepcopy(self.cfg)
@@ -148,8 +148,10 @@ class TrainDP3Workspace:
         cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
         cprint("-----------------------------", "yellow")
         # configure logging
+        wandb_dir = pathlib.Path(self.output_dir) / "origin"
+        wandb_dir.mkdir(parents=True, exist_ok=True)
         wandb_run = wandb.init(
-            dir=str(self.output_dir),
+            dir=str(wandb_dir),
             config=OmegaConf.to_container(cfg, resolve=True),
             **cfg.logging
         )
@@ -320,10 +322,12 @@ class TrainDP3Workspace:
                 # We can't copy the last checkpoint here
                 # since save_checkpoint uses threads.
                 # therefore at this point the file might have been empty!
-                topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
 
-                if topk_ckpt_path is not None:
-                    self.save_checkpoint(path=topk_ckpt_path)
+                #@@@@@@@ instantly not use!!!!!!!!!
+                # topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+                
+                # if topk_ckpt_path is not None:
+                #     self.save_checkpoint(path=topk_ckpt_path)
             # ========= eval end for this epoch ==========
             policy.train()
 
@@ -338,11 +342,11 @@ class TrainDP3Workspace:
         # load the latest checkpoint
         
         cfg = copy.deepcopy(self.cfg)
-        
-        lastest_ckpt_path = self.get_checkpoint_path(tag="latest")
-        if lastest_ckpt_path.is_file():
-            cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
-            self.load_checkpoint(path=lastest_ckpt_path)
+        ckpt_path = self.get_checkpoint_path(tag=cfg.training.load_eval_checkpoint_type)
+        # lastest_ckpt_path = self.get_checkpoint_path(tag="best")
+        if ckpt_path.is_file():
+            cprint(f"Resuming from checkpoint {ckpt_path}", 'magenta')
+            self.load_checkpoint(path=ckpt_path)
         
         # configure env
         env_runner: BaseRunner
@@ -494,35 +498,73 @@ class TrainDP3Workspace:
         return torch.load(open(path, 'rb'), pickle_module=dill)
     
     def collect_data(self):
-        # load the latest checkpoint
+        # # set diff seed with eval
+        # seed = cfg.training.seed + "SVD"
+        # torch.manual_seed(seed)
+        # np.random.seed(seed)
+        # random.seed(seed)
 
+        # # load the latest checkpoint
+
+        # cfg = copy.deepcopy(self.cfg)
+
+        # #lastest_ckpt_path = self.get_checkpoint_path(tag="latest")
+        # lastest_ckpt_path = self.get_checkpoint_path(tag="best")
+        # if lastest_ckpt_path.is_file():
+        #     cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
+        #     self.load_checkpoint(path=lastest_ckpt_path)
+        # else:
+        #     assert False, f"Checkpoint {lastest_ckpt_path} does not exist. Please train the model first."
+
+        # # configure env
+        # env_runner: BaseRunner
+        # env_runner = hydra.utils.instantiate(
+        #     cfg.task.env_runner,
+        #     output_dir=self.output_dir)
+        # assert isinstance(env_runner, BaseRunner)
+        # policy = self.model
+        # if cfg.training.use_ema:
+        #     policy = self.ema_model
+        # policy.eval()
+        # policy.cuda()
+
+        # #runner_log = env_runner.run(policy)
+        # env_runner.run(policy)
+
+
+        # cprint(f"finish to collect data")
         cfg = copy.deepcopy(self.cfg)
 
-        lastest_ckpt_path = self.get_checkpoint_path(tag="latest")
-        if lastest_ckpt_path.is_file():
-            cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
-            self.load_checkpoint(path=lastest_ckpt_path)
-        else:
-            assert False, f"Checkpoint {lastest_ckpt_path} does not exist. Please train the model first."
+        ckpt_path = self.get_checkpoint_path(tag=cfg.training.load_eval_checkpoint_type)
+        if ckpt_path.is_file():
+            print(f"Resuming from checkpoint {ckpt_path}")
+            self.load_checkpoint(path=ckpt_path)
 
-        # configure env
-        env_runner: BaseRunner
-        env_runner = hydra.utils.instantiate(
-            cfg.task.env_runner,
-            output_dir=self.output_dir)
-        assert isinstance(env_runner, BaseRunner)
-        policy = self.model
-        if cfg.training.use_ema:
-            policy = self.ema_model
-        policy.eval()
-        policy.cuda()
+        # configure dataset
+        dataset: BaseDataset
+        dataset = hydra.utils.instantiate(cfg.task.dataset)
 
-        #runner_log = env_runner.run(policy)
-        env_runner.run(policy)
+        assert isinstance(dataset, BaseDataset), print(f"dataset must be BaseDataset, got {type(dataset)}")
+        train_dataloader = DataLoader(dataset, **cfg.dataloader)
 
+        # device transfer
+        device = torch.device(cfg.training.device)
+        self.model.to(device)
 
+        with torch.no_grad():
+            # ========= train for this epoch ==========
+            with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
+                    leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                for batch_idx, batch in enumerate(tepoch):
+                    # device transfer
+                    batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+                    _, _ = self.model.compute_loss(batch)
+                    
+                    if (cfg.training.max_train_steps is not None) \
+                        and batch_idx >= (cfg.training.max_train_steps-1):
+                        break
         cprint(f"finish to collect data")
-                
+
         
 @hydra.main(
     version_base=None,

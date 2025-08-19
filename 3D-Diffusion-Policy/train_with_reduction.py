@@ -32,11 +32,6 @@ from diffusion_policy_3d.common.pytorch_util import dict_apply, optimizer_to
 from diffusion_policy_3d.model.diffusion.ema_model import EMAModel
 from diffusion_policy_3d.model.common.lr_scheduler import get_scheduler
 
-from torch.profiler import profile, ProfilerActivity, schedule, record_function
-from torch._C._profiler import RecordScope
-from torch.autograd.profiler_util import EventList
-
-
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 class TrainDP3Workspace:
@@ -45,6 +40,10 @@ class TrainDP3Workspace:
 
     def __init__(self, cfg: OmegaConf, output_dir=None):
         self.cfg = cfg
+        if cfg.threshold == None:
+            raise NotImplementedError("cfg.threshold must be defined")
+        else:
+            print("threshold = ", cfg.threshold)
         self._output_dir = output_dir
         self._saving_thread = None
         
@@ -53,16 +52,6 @@ class TrainDP3Workspace:
         torch.manual_seed(seed)
         np.random.seed(seed)
         random.seed(seed)
-
-        # @@@@@@@@@ need to edit
-        #breakpoint()
-
-        # cfg.policy.up_dims = [(2268, 568), (1592, 400)]
-        # cfg.policy.up_dims = [(561, 144), (260, 72)]
-        # cfg.policy._target_ = 'diffusion_policy_3d.policy.dp3_with_reduction.DP3_Reducted'
-
-        # configure model
-        #breakpoint()
 
         self.model: DP3 = hydra.utils.instantiate(cfg.policy_reducted)
 
@@ -76,11 +65,11 @@ class TrainDP3Workspace:
 
         # configure training state
         self.optimizer = hydra.utils.instantiate(
-            cfg.optimizer, params=self.model.parameters())
+            cfg.optimizer_reducted, params=self.model.parameters())
 
         # configure training state
         self.global_step = 0
-        self.epoch = 0
+        self.epoch = 1
 
 
     def run(self):
@@ -118,14 +107,15 @@ class TrainDP3Workspace:
 
         # training from unreducted model
         if not flag:
-            lastest_ckpt_path = self.get_checkpoint_path(reducted=False)
-            if lastest_ckpt_path.is_file():
-                print(f"Resuming from checkpoint {lastest_ckpt_path}")
+            # origin_ckpt_path = self.get_checkpoint_path(reducted=False, tag='latest')
+            origin_ckpt_path = self.get_checkpoint_path(reducted=False, tag=cfg.training_reducted.load_origin_checkpoint_type)
+            if origin_ckpt_path.is_file():
+                print(f"Resuming from checkpoint {origin_ckpt_path}")
                 print(f"start training model with reducction from non-reducted checkpoint")
-                self.load_checkpoint_partially(path=lastest_ckpt_path)
+                self.load_checkpoint_partially(path=origin_ckpt_path)
             else:
                 raise FileNotFoundError(
-                    f"Checkpoint {lastest_ckpt_path} not found. "
+                    f"Checkpoint {origin_ckpt_path} not found. "
                     "Please run training first to create a checkpoint of non-reducted ver.")
 
 
@@ -180,8 +170,10 @@ class TrainDP3Workspace:
         cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
         cprint("-----------------------------", "yellow")
         # configure logging
+        wandb_dir = pathlib.Path(self.output_dir) / f"reducted_threshold_{self.cfg.threshold}"
+        wandb_dir.mkdir(parents=True, exist_ok=True)
         wandb_run = wandb.init(
-            dir=str(self.output_dir) + "/reducted",
+            dir=str(wandb_dir),
             config=OmegaConf.to_container(cfg, resolve=True),
             **cfg.logging
         )
@@ -193,7 +185,7 @@ class TrainDP3Workspace:
 
         # configure checkpoint
         topk_manager = TopKCheckpointManager(
-            save_dir=os.path.join(self.output_dir, 'checkpoints_reducted'),
+            save_dir=os.path.join(self.output_dir, f"checkpoints_reducted_threshold={self.cfg.threshold}"),
             **cfg.checkpoint.topk
         )
 
@@ -352,10 +344,12 @@ class TrainDP3Workspace:
                 # We can't copy the last checkpoint here
                 # since save_checkpoint uses threads.
                 # therefore at this point the file might have been empty!
-                topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
 
-                if topk_ckpt_path is not None:
-                    self.save_checkpoint(path=topk_ckpt_path)
+                #@@@@@@@@@@ instantly off
+                # topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+
+                # if topk_ckpt_path is not None:
+                #     self.save_checkpoint(path=topk_ckpt_path)
             # ========= eval end for this epoch ==========
             policy.train()
 
@@ -371,7 +365,8 @@ class TrainDP3Workspace:
         
         cfg = copy.deepcopy(self.cfg)
         
-        lastest_ckpt_path = self.get_checkpoint_path(reducted=True, tag="latest")
+        # lastest_ckpt_path = self.get_checkpoint_path(reducted=True, tag="latest")
+        lastest_ckpt_path = self.get_checkpoint_path(reducted=True, tag=cfg.training_reducted.load_eval_checkpoint_type)
         if lastest_ckpt_path.is_file():
             cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
             self.load_checkpoint(path=lastest_ckpt_path)
@@ -409,7 +404,7 @@ class TrainDP3Workspace:
             include_keys=None,
             use_thread=False):
         if path is None:
-            path = pathlib.Path(self.output_dir).joinpath('checkpoints_reducted', f'{tag}.ckpt')
+            path = pathlib.Path(self.output_dir).joinpath(f"checkpoints_reducted_threshold={self.cfg.threshold}", f'{tag}.ckpt')
         else:
             path = pathlib.Path(path)
         if exclude_keys is None:
@@ -449,7 +444,7 @@ class TrainDP3Workspace:
         if not reducted:
             path_name = "checkpoints"
         else:
-            path_name = "checkpoints_reducted"
+            path_name = f"checkpoints_reducted_threshold={self.cfg.threshold}"
 
         if tag=='latest':
             return pathlib.Path(self.output_dir).joinpath(path_name, f'{tag}.ckpt')
@@ -556,184 +551,6 @@ class TrainDP3Workspace:
     def create_from_snapshot(cls, path):
         return torch.load(open(path, 'rb'), pickle_module=dill)
 
-    def eval_with_db(self):
-        cfg = copy.deepcopy(self.cfg)
-
-        # configure env
-        env_runner: BaseRunner
-        env_runner = hydra.utils.instantiate(
-            cfg.task.env_runner,
-            output_dir=self.output_dir)
-
-        if env_runner is not None:
-            assert isinstance(env_runner, BaseRunner)
-        
-        cfg.logging.name = str(cfg.logging.name) + "_eval_reducted"
-        cfg.logging.resume = str("never")
-        cprint("-----------------------------", "yellow")
-        cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
-        cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
-        cprint("-----------------------------", "yellow")
-        # configure logging
-        wandb_run = wandb.init(
-            dir=str(self.output_dir),
-            config=OmegaConf.to_container(cfg, resolve=True),
-            **cfg.logging
-        )
-        wandb.config.update(
-            {
-                "output_dir": self.output_dir,
-            }
-        )
-        
-        lastest_ckpt_path = self.get_checkpoint_path(reducted=True, tag="latest")
-        if lastest_ckpt_path.is_file():
-            cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
-            self.load_checkpoint(path=lastest_ckpt_path)
-        
-        # configure env
-        env_runner: BaseRunner
-        env_runner = hydra.utils.instantiate(
-            cfg.task.env_runner,
-            output_dir=self.output_dir)
-        assert isinstance(env_runner, BaseRunner)
-        policy = self.model
-        if cfg.training_reducted.use_ema:
-            policy = self.ema_model
-        policy.eval()
-        policy.cuda()
-
-        runner_log = env_runner.run(policy)
-        wandb_run.log(runner_log, step=1)
-
-        cprint(f"---------------- Eval Results --------------", 'magenta')
-        for key, value in runner_log.items():
-            if isinstance(value, float):
-                cprint(f"{key}: {value:.4f}", 'magenta')
-
-    def profile_model(self):
-        cfg = copy.deepcopy(self.cfg)
-        
-        # configure dataset
-        dataset: BaseDataset
-        dataset = hydra.utils.instantiate(cfg.task.dataset)
-
-        assert isinstance(dataset, BaseDataset), print(f"dataset must be BaseDataset, got {type(dataset)}")
-        train_dataloader = DataLoader(dataset, **cfg.dataloader)
-        normalizer = dataset.get_normalizer()
-
-        self.model.set_normalizer(normalizer)
-        if cfg.training.use_ema:
-            self.ema_model.set_normalizer(normalizer)
-
-        # configure lr scheduler
-        lr_scheduler = get_scheduler(
-            cfg.training.lr_scheduler,
-            optimizer=self.optimizer,
-            num_warmup_steps=cfg.training.lr_warmup_steps,
-            num_training_steps=(
-                len(train_dataloader) * cfg.training.num_epochs) \
-                    // cfg.training.gradient_accumulate_every,
-            # pytorch assumes stepping LRScheduler every epoch
-            # however huggingface diffusers steps it every batch
-            last_epoch=self.global_step-1
-        )
-
-        # configure ema
-        ema: EMAModel = None
-        if cfg.training.use_ema:
-            ema = hydra.utils.instantiate(
-                cfg.ema,
-                model=self.ema_model)
-
-        # configure env
-        env_runner: BaseRunner
-        env_runner = hydra.utils.instantiate(
-            cfg.task.env_runner,
-            output_dir=self.output_dir)
-
-        if env_runner is not None:
-            assert isinstance(env_runner, BaseRunner)
-
-        # device transfer
-        device = torch.device(cfg.training.device)
-        self.model.to(device)
-        if self.ema_model is not None:
-            self.ema_model.to(device)
-        optimizer_to(self.optimizer, device)
-
-        # save batch for sampling
-        train_sampling_batch = None
-
-        # training loop
-        with profile(
-            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-            schedule=schedule(wait=1, warmup=1, active=10, repeat=1),
-            record_shapes=True,
-        ) as prof_train:
-            # ========= train for 1 epoch ==========
-            for local_epoch_idx in range(1):
-                train_losses = list()
-                with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
-                        leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
-                    for batch_idx, batch in enumerate(tepoch):
-                        t1 = time.time()
-                        # device transfer
-                        batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                        if train_sampling_batch is None:
-                            train_sampling_batch = batch
-                    
-                        # compute loss
-                        raw_loss, loss_dict = self.model.compute_loss(batch)
-                        loss = raw_loss / cfg.training.gradient_accumulate_every
-                        loss.backward()
-
-                        # step optimizer
-                        if self.global_step % cfg.training.gradient_accumulate_every == 0:
-                            self.optimizer.step()
-                            self.optimizer.zero_grad()
-                            lr_scheduler.step()
-                        # update ema
-                        if cfg.training.use_ema:
-                            ema.step(self.model)
-                        # logging
-                        raw_loss_cpu = raw_loss.item()
-                        tepoch.set_postfix(loss=raw_loss_cpu, refresh=False)
-                        train_losses.append(raw_loss_cpu)
-
-                        is_last_batch = (batch_idx == (len(train_dataloader)-1))
-                        if not is_last_batch:
-                            # log of last step is combined with validation and rollout
-                            self.global_step += 1
-
-                        if (cfg.training.max_train_steps is not None) \
-                            and batch_idx >= (cfg.training.max_train_steps-1):
-                            break
-            prof_train.step()
-        print(prof_train.key_averages().table(
-            sort_by="self_cuda_time_total", row_limit=10
-        ))
-        
-        # eval loop
-        with profile(
-            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-            schedule=schedule(wait=1, warmup=1, active=10, repeat=1),
-            record_shapes=True,
-        ) as prof_eval:
-            # ========= eval for 1 epoch ==========
-            policy = self.model
-            if cfg.training.use_ema:
-                policy = self.ema_model
-            policy.eval()
-            policy.cuda()
-            env_runner.run(policy)
-            prof_eval.step()
-
-
-        print(prof_eval.key_averages().table(
-            sort_by="self_cuda_time_total", row_limit=10
-        ))
-        
 
 @hydra.main(
     version_base=None,
