@@ -6,7 +6,7 @@
 
 
 
-DEBUG=False
+DEBUG=True
 save_ckpt=True
 
 alg_name=${1}

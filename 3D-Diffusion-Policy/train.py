@@ -73,10 +73,10 @@ class TrainDP3Workspace:
         cfg = copy.deepcopy(self.cfg)
         
         if cfg.training.debug:
-            cfg.training.num_epochs = 100
-            cfg.training.max_train_steps = 10
+            cfg.training.num_epochs = 5
+            cfg.training.max_train_steps = 5
             cfg.training.max_val_steps = 3
-            cfg.training.rollout_every = 20
+            cfg.training.rollout_every = 2
             cfg.training.checkpoint_every = 1
             cfg.training.val_every = 1
             cfg.training.sample_every = 1
