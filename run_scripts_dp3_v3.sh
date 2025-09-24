@@ -1,8 +1,8 @@
 set -euo pipefail
 
-ALG="flowpolicy"
-date="0825"
-gpu="1"
+ALG="dp3"
+date="0830"
+gpu="2"
 
 
 ENVS=(
@@ -19,11 +19,7 @@ SEED=(
     # "2"
 )
 
-THD=(
-    "0.99"
-    "0.95"
-    "0.9"
-)
+thd="fixed"
 
 
 
@@ -47,23 +43,22 @@ for env in "${ENVS[@]}"; do
 
         bash scripts/eval_to_collect_data.sh "$ALG" "$env" "$date" "$seed" "$gpu" &>fin_log_${ALG}.txt
         echo " fin collect_data"
-        bash scripts/calculate_SVD.sh "$ALG" "$env" "$date" "$seed" "$gpu" &>fin_log_${ALG}.txt                                                               
+        bash scripts/calculate_SVD_ver2.sh "$ALG" "$env" "$date" "$seed" "$gpu" &>fin_log_${ALG}.txt                                                               
         echo " fin calculate_SVD"
-        for thd in "${THD[@]}"; do
-            bash scripts/train_policy_with_reduction.sh "$ALG" "$env" "$date" "$seed" "$gpu" "$thd" &>fin_log_${ALG}.txt
-            echo "  fin train_policy with thd ${thd}"
-            bash scripts/eval_policy_with_reduction.sh "$ALG" "$env" "$date" "$seed" "$gpu" "$thd"\
-            2>&1 | tee fin_log_${ALG}.txt \
-            | grep -E '^(test_mean_score|inference_fps|k_h1|k_h2|num_param):' \
-            > "${LOG_DIR_reduct}/${env}_${date}_seed${seed}_thd${thd}.txt"
 
-            echo "  fin eval_policy with thd ${thd}"
-        done
+        bash scripts/train_policy_with_reduction.sh "$ALG" "$env" "$date" "$seed" "$gpu" "$thd" &>fin_log_${ALG}.txt
+        echo " fin train_policy with thd ${thd}"
+        bash scripts/eval_policy_with_reduction.sh "$ALG" "$env" "$date" "$seed" "$gpu" "$thd"\
+        2>&1 | tee fin_log_${ALG}.txt \
+        | grep -E '^(test_mean_score|inference_fps|k_h1|k_h2|num_param):' \
+        > "${LOG_DIR_reduct}/${env}_${date}_seed${seed}_thd${thd}.txt"
+
+        echo " fin eval_policy with thd ${thd}"
 
         outputs_dir="3D-Diffusion-Policy/data/outputs/${env}-${ALG}-${date}_seed${seed}"
-        rm -rf ${outputs_dir}/checkpoints*
-        rm -rf ${outputs_dir}/basis
-        # rm -rf ${outputs_dir}/collect_data
+        rm -rf ${outputs_dir}/checkpoints_reducted*
+        #rm -rf ${outputs_dir}/basis
+        #rm -rf ${outputs_dir}/collect_data
 
         echo " fin remove checkpoints and etc"
         echo "✅ 완료: LOG_DIR/${env}_${date}_seed${seed}_thdN.txt"

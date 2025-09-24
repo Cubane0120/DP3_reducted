@@ -1,40 +1,39 @@
 defaults:
-  - task: meta_world_button-press
+  - task: adroit_hammer
 
-name: train_dp3
+name: train_mambapolicy
 
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
 exp_name: "debug"
 
-# horizon: 4
-horizon: 16
+horizon: 4  
 n_obs_steps: 2
-# n_action_steps: 3
-n_action_steps: 8
+n_action_steps: 4
 n_latency_steps: 0
 dataset_obs_steps: ${n_obs_steps}
 keypoint_visible_rate: 1.0
 obs_as_global_cond: True
+threshold: null #added
 
-task:
-  env_runner:
-    _target_: diffusion_policy_3d.env_runner.metaworld_runner_custom.MetaworldRunner_CUSTOM
-    save_video : True
-
-policy:
-  _target_: diffusion_policy_3d.policy.dp3.DP3
+policy: &policy_base
+  _target_: diffusion_policy_3d.policy.mambapolicy.MambaPolicy
   use_point_crop: true
   condition_type: film
   use_down_condition: true
   use_mid_condition: true
   use_up_condition: true
+
+  use_mamba: true
+  mamba_type: unet1D        
+  depth: 8
+  mamba_version: mambavision_v1
   
   diffusion_step_embed_dim: 128
   down_dims:
+  - 128
+  - 256
   - 512
-  - 1024
-  - 2048
   crop_shape:
   - 80
   - 80
@@ -69,9 +68,19 @@ policy:
     in_channels: 3
     out_channels: ${policy.encoder_output_dim}
     use_layernorm: true
-    final_norm: layernorm # layernorm, none
+    final_norm: layernorm
     normal_channel: false
+    use_mamba: false
 
+  collect_data: False
+  collect_data_path: null
+  path_basis_h1: null
+  path_basis_h2: null
+
+policy_reducted:
+  <<: *policy_base
+  path_basis_h1: True
+  path_basis_h2: True
 
 ema:
   _target_: diffusion_policy_3d.model.diffusion.ema_model.EMAModel
@@ -95,21 +104,24 @@ val_dataloader:
   pin_memory: True
   persistent_workers: False
 
-optimizer:
+optimizer: &optimizer_base
   _target_: torch.optim.AdamW
   lr: 1.0e-4
   betas: [0.95, 0.999]
   eps: 1.0e-8
   weight_decay: 1.0e-6
 
-training:
+optimizer_reducted:
+  <<: *optimizer_base
+
+training: &training_base
   device: "cuda:0"
   seed: 42
   debug: False
   resume: True
   lr_scheduler: cosine
   lr_warmup_steps: 500
-  num_epochs: 1000
+  num_epochs: 3000
   gradient_accumulate_every: 1
   use_ema: True
   rollout_every: 200
@@ -119,16 +131,29 @@ training:
   max_train_steps: null
   max_val_steps: null
   tqdm_interval_sec: 1.0
+  load_eval_checkpoint_type : latest
 
-logging:
+training_reducted:
+  <<: *training_base
+  # lr_warmup_steps: 500
+  # num_epochs: 3000
+  # gradient_accumulate_every: 1
+  # use_ema: True
+  # rollout_every: 200
+  # checkpoint_every: 200
+  load_eval_checkpoint_type : latest
+  load_origin_checkpoint_type : latest #best #or latest
+
+logging: &logging_base
   group: ${exp_name}
   id: null
   mode: online
-  name: ${training.seed}
-  project: dp3
+  # name: ${training.seed}
+  name: ${exp_name}_${training.seed}
+  project: mambapolicy
   resume: true
   tags:
-  - dp3
+  - mambapolicy
 
 checkpoint:
   save_ckpt: False # if True, save checkpoint every checkpoint_every

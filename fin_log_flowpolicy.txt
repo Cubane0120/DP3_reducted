@@ -1,0 +1,88 @@
+/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/mamba_ssm/ops/selective_scan_interface.py:164: FutureWarning: `torch.cuda.amp.custom_fwd(args...)` is deprecated. Please use `torch.amp.custom_fwd(args..., device_type='cuda')` instead.
+  def forward(ctx, xz, conv1d_weight, conv1d_bias, x_proj_weight, delta_proj_weight,
+/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/mamba_ssm/ops/selective_scan_interface.py:240: FutureWarning: `torch.cuda.amp.custom_bwd(args...)` is deprecated. Please use `torch.amp.custom_bwd(args..., device_type='cuda')` instead.
+  def backward(ctx, dout):
+/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/mamba_ssm/ops/triton/layer_norm.py:986: FutureWarning: `torch.cuda.amp.custom_fwd(args...)` is deprecated. Please use `torch.amp.custom_fwd(args..., device_type='cuda')` instead.
+  def forward(
+/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/mamba_ssm/ops/triton/layer_norm.py:1045: FutureWarning: `torch.cuda.amp.custom_bwd(args...)` is deprecated. Please use `torch.amp.custom_bwd(args..., device_type='cuda')` instead.
+  def backward(ctx, dout, *args):
+/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/mamba_ssm/distributed/tensor_parallel.py:26: FutureWarning: `torch.cuda.amp.custom_fwd(args...)` is deprecated. Please use `torch.amp.custom_fwd(args..., device_type='cuda')` instead.
+  def forward(ctx, x, weight, bias, process_group=None, sequence_parallel=True):
+/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/mamba_ssm/distributed/tensor_parallel.py:62: FutureWarning: `torch.cuda.amp.custom_bwd(args...)` is deprecated. Please use `torch.amp.custom_bwd(args..., device_type='cuda')` instead.
+  def backward(ctx, grad_output):
+/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/mamba_ssm/ops/triton/ssd_combined.py:758: FutureWarning: `torch.cuda.amp.custom_fwd(args...)` is deprecated. Please use `torch.amp.custom_fwd(args..., device_type='cuda')` instead.
+  def forward(ctx, zxbcdt, conv1d_weight, conv1d_bias, dt_bias, A, D, chunk_size, initial_states=None, seq_idx=None, dt_limit=(0.0, float("inf")), return_final_states=False, activation="silu",
+/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/mamba_ssm/ops/triton/ssd_combined.py:836: FutureWarning: `torch.cuda.amp.custom_bwd(args...)` is deprecated. Please use `torch.amp.custom_bwd(args..., device_type='cuda')` instead.
+  def backward(ctx, dout, *args):
+/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/hydra/_internal/defaults_list.py:251: UserWarning: In 'flowpolicy.yaml': Defaults list is missing `_self_`. See https://hydra.cc/docs/upgrades/1.0_to_1.1/default_composition_order for more information
+  warnings.warn(msg, UserWarning)
+[DP3Encoder] point cloud shape: [512, 3]
+[DP3Encoder] state shape: [9]
+[DP3Encoder] imagination point shape: None
+[PointNetEncoderXYZ] use_layernorm: True
+[PointNetEncoderXYZ] use_final_norm: layernorm
+[DP3Encoder] output dim: 128
+[FlowUnetHybridPointcloudPolicy] use_pc_color: False
+[FlowUnetHybridPointcloudPolicy] pointnet_type: pointnet
+[2025-09-01 12:55:15,483][diffusion_policy_3d.model.diffusion.conditional_unet1d][INFO] - number of parameters: 2.550744e+08
+----------------------------------
+Class name: ConditionalUnet1D
+  Number of parameters: 255.0744M
+   mid_modules: 87.0646M (34.13%)
+   diffusion_step_encoder: 0.1317M (0.05%)
+   up_modules: 58.7479M (23.03%)
+   down_modules: 107.8159M (42.27%)
+   final_conv: 1.3143M (0.52%)
+----------------------------------
+num_param: 255074436
+----------------------------------
+Class name: FlowPolicy
+  Number of parameters: 255.1383M
+   _dummy_variable: 0.0000M (0.00%)
+   obs_encoder: 0.0639M (0.03%)
+   model: 255.0744M (99.97%)
+   mask_generator: 0.0000M (0.00%)
+----------------------------------
+Replay Buffer: state, shape (2000, 9), dtype float32, range -0.11~0.95
+Replay Buffer: action, shape (2000, 4), dtype float32, range -6.02~7.50
+Replay Buffer: point_cloud, shape (2000, 1024, 6), dtype float32, range -0.99~255.00
+--------------------------
+Training epoch 1:   0%|          | 0/15 [00:00<?, ?it/s]                                                        Error executing job with overrides: ['task=metaworld_shelf-place', 'training.debug=False', 'training.seed=0', 'training.device=cuda:0', 'exp_name=metaworld_shelf-place-flowpolicy-0830', 'logging.mode=', 'checkpoint.save_ckpt=', 'policy.collect_data=True', 'policy.collect_data_path=data/outputs/metaworld_shelf-place-flowpolicy-0830_seed0/collect_data']
+Traceback (most recent call last):
+  File "collect_data_for_pca.py", line 31, in <module>
+    main()
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/hydra/main.py", line 90, in decorated_main
+    _run_hydra(
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/hydra/_internal/utils.py", line 389, in _run_hydra
+    _run_app(
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/hydra/_internal/utils.py", line 452, in _run_app
+    run_and_report(
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/hydra/_internal/utils.py", line 216, in run_and_report
+    raise ex
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/hydra/_internal/utils.py", line 213, in run_and_report
+    return func()
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/hydra/_internal/utils.py", line 453, in <lambda>
+    lambda: hydra.run(
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/hydra/_internal/hydra.py", line 132, in run
+    _ = ret.return_value
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/hydra/core/utils.py", line 260, in return_value
+    raise self._return_value
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/hydra/core/utils.py", line 186, in run_job
+    ret.return_value = task_function(task_cfg)
+  File "collect_data_for_pca.py", line 28, in main
+    workspace.collect_data()
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/3D-Diffusion-Policy/train.py", line 527, in collect_data
+    _, _ = self.model.compute_loss(batch)
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/3D-Diffusion-Policy/diffusion_policy_3d/policy/flowpolicy.py", line 255, in compute_loss
+    nobs = self.normalizer.normalize(batch['obs'])
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/3D-Diffusion-Policy/diffusion_policy_3d/model/common/normalizer.py", line 68, in normalize
+    return self._normalize_impl(x, forward=True)
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/3D-Diffusion-Policy/diffusion_policy_3d/model/common/normalizer.py", line 58, in _normalize_impl
+    params = self.params_dict[key]
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/torch/nn/modules/container.py", line 738, in __getitem__
+    return getattr(self, attr)
+  File "/SSDa/dongwoo_nam/hsh/DP3_reducted/custom_conda/envs/dp3_reducted/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1729, in __getattr__
+    raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+AttributeError: 'ParameterDict' object has no attribute 'point_cloud'

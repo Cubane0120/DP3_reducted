@@ -1,29 +1,24 @@
 defaults:
-  - task: meta_world_button-press-wall
+  - task: adroit_hammer
 
-name: train_dp3
+name: train_flowpolicy
 
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
 exp_name: "debug"
 
-# horizon: 4
-horizon: 16
+horizon: 16 #4
 n_obs_steps: 2
-# n_action_steps: 3
-n_action_steps: 8
+n_action_steps: 8 #4
 n_latency_steps: 0
 dataset_obs_steps: ${n_obs_steps}
 keypoint_visible_rate: 1.0
 obs_as_global_cond: True
+threshold : null
 
-task:
-  env_runner:
-    _target_: diffusion_policy_3d.env_runner.metaworld_runner_custom.MetaworldRunner_CUSTOM
-    save_video : True
-
-policy:
-  _target_: diffusion_policy_3d.policy.dp3.DP3
+policy: &policy_base
+  #_target_: flow_policy_3d.policy.flowpolicy.FlowPolicy
+  _target_: diffusion_policy_3d.policy.flowpolicy.FlowPolicy
   use_point_crop: true
   condition_type: film
   use_down_condition: true
@@ -36,33 +31,20 @@ policy:
   - 1024
   - 2048
   crop_shape:
-  - 80
-  - 80
+  - 84
+  - 84
   encoder_output_dim: 64
   horizon: ${horizon}
   kernel_size: 5
   n_action_steps: ${n_action_steps}
   n_groups: 8
   n_obs_steps: ${n_obs_steps}
-
-  noise_scheduler:
-    _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
-    num_train_timesteps: 100
-    beta_start: 0.0001
-    beta_end: 0.02
-    beta_schedule: squaredcos_cap_v2
-    clip_sample: True
-    set_alpha_to_one: True
-    steps_offset: 0
-    prediction_type: sample
-
-
-  num_inference_steps: 10
+  
   obs_as_global_cond: true
   shape_meta: ${shape_meta}
 
   use_pc_color: false
-  pointnet_type: "pointnet"
+  pointnet_type: pointnet
 
 
   pointcloud_encoder_cfg:
@@ -72,6 +54,15 @@ policy:
     final_norm: layernorm # layernorm, none
     normal_channel: false
 
+  collect_data: False
+  collect_data_path: null
+  path_basis_h1: null
+  path_basis_h2: null
+
+policy_reducted:
+  <<: *policy_base
+  path_basis_h1: True
+  path_basis_h2: True
 
 ema:
   _target_: diffusion_policy_3d.model.diffusion.ema_model.EMAModel
@@ -95,41 +86,59 @@ val_dataloader:
   pin_memory: True
   persistent_workers: False
 
-optimizer:
+optimizer: &optimizer_base
   _target_: torch.optim.AdamW
   lr: 1.0e-4
   betas: [0.95, 0.999]
   eps: 1.0e-8
   weight_decay: 1.0e-6
 
-training:
+optimizer_reducted:
+  <<: *optimizer_base
+
+training: &training_base
   device: "cuda:0"
   seed: 42
   debug: False
   resume: True
   lr_scheduler: cosine
-  lr_warmup_steps: 500
+  lr_warmup_steps: 200
   num_epochs: 1000
   gradient_accumulate_every: 1
   use_ema: True
-  rollout_every: 200
-  checkpoint_every: 200
+  rollout_every: 50
+  checkpoint_every: 50
   val_every: 1
   sample_every: 5
   max_train_steps: null
   max_val_steps: null
   tqdm_interval_sec: 1.0
+  # max_grad_norm: 1.0 #no used in code
+  # ema_decay: 0.95
+  load_eval_checkpoint_type : latest
+
+training_reducted:
+  <<: *training_base
+  lr_warmup_steps: 50
+  num_epochs: 500
+  gradient_accumulate_every: 1
+  use_ema: True
+  rollout_every: 25
+  checkpoint_every: 25
+  load_eval_checkpoint_type : latest
+  load_origin_checkpoint_type : latest #best #or latest
+
+
 
 logging:
   group: ${exp_name}
   id: null
   mode: online
-  name: ${training.seed}
-  project: dp3
+  name: ${exp_name}_${training.seed}
+  project: flowpolicy
   resume: true
   tags:
-  - dp3
-
+  - flowpolicy
 
 checkpoint:
   save_ckpt: False # if True, save checkpoint every checkpoint_every
@@ -141,7 +150,6 @@ checkpoint:
   save_last_ckpt: True # this only saves when save_ckpt is True
   save_last_snapshot: False
 
-  
 multi_run:
   run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
   wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}

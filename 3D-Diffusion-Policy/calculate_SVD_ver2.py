@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 # prefix = "latent_h2"
 # prefix = "latent_md"
 prefixes = ["latent_h1", "latent_h2"]#, "latent_md"]
-thresholds = [0.99, 0.95, 0.9]
 
 @hydra.main(
     version_base=None,
@@ -35,7 +34,7 @@ thresholds = [0.99, 0.95, 0.9]
 )
 def main(cfg):
     data_path = cfg.policy.collect_data_path
-    
+    k_val = [cfg.k1, cfg.k2]  # number of components to keep
     for i_prefix, prefix in enumerate(prefixes):
         print("Processing prefix:", prefix)
         file_paths = sorted(glob.glob(data_path + f"/{prefix}*.npy"))
@@ -86,34 +85,22 @@ def main(cfg):
 
         data_dir = pathlib.Path(data_path).parent / "basis"
         data_dir.mkdir(parents=True, exist_ok=True)
-        for threshold in thresholds:
-            #k = np.searchsorted(accumulate_var_ratio, threshold, side='left')
-            k_raw = int(cp.searchsorted(accumulate_var_ratio, cp.array([threshold]), side='left')[0])
-            k = ((k_raw-1)//8 +1) * 8
-            #if divide to 2, at upmodules (default=4)
-            if k < 16:
-                k = 16
-            
-            # #if divide to 4, at upmodules (default=4)
-            # if i_prefix == 0:
-            #     if k < 48:
-            #         k=48
-            # elif i_prefix == 1:
-            #     if k < 32:
-            #         k=32
-            
-            logger.info(
-                f"prefixes : {prefix}, threshold : {threshold}\n Number of components to retain {threshold*100}% variance: {k}, raw: {k_raw}"
-            )
-            #{str(threshold)}
-            VT_k = VT[:k, :]              # (k, D)
-            V_k = VT_k.T                  # (D, k) 
-            V_k_cpu = cp.asnumpy(V_k)
-            
-            save_dir = data_dir / f"threshold_{str(threshold)}"
-            save_dir.mkdir(parents=True, exist_ok=True)
-            #np.save(data_path+f"_svd_basis_{prefix}.npy", V_k)  # shape: (D, k)        
-            np.save(str(save_dir)+f"/{prefix}.npy", V_k_cpu)  # shape: (D, k)
+
+        #k = np.searchsorted(accumulate_var_ratio, threshold, side='left')
+        k = k_val[i_prefix]
+        acc_var = accumulate_var_ratio[k-1].item()
+        logger.info(
+            f"prefixes : {prefix}, Number of components to retain {acc_var*100}% variance: {k}"
+        )
+        #{str(threshold)}
+        VT_k = VT[:k, :]              # (k, D)
+        V_k = VT_k.T                  # (D, k) 
+        V_k_cpu = cp.asnumpy(V_k)
+        
+        save_dir = data_dir / f"threshold_fixed"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        #np.save(data_path+f"_svd_basis_{prefix}.npy", V_k)  # shape: (D, k)        
+        np.save(str(save_dir)+f"/{prefix}.npy", V_k_cpu)  # shape: (D, k)
 
 if __name__ == "__main__":
     main()

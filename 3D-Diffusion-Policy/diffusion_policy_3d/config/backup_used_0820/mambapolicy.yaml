@@ -1,50 +1,67 @@
 defaults:
   - task: adroit_hammer
 
-name: train_flowpolicy
+name: train_mambapolicy
 
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
 exp_name: "debug"
 
-horizon: 4
+horizon: 16 #4
 n_obs_steps: 2
-n_action_steps: 3
+n_action_steps: 8 #4
 n_latency_steps: 0
 dataset_obs_steps: ${n_obs_steps}
 keypoint_visible_rate: 1.0
 obs_as_global_cond: True
-threshold : null
+threshold: null #added
 
 policy: &policy_base
-  #_target_: flow_policy_3d.policy.flowpolicy.FlowPolicy
-  _target_: diffusion_policy_3d.policy.flowpolicy.FlowPolicy
+  _target_: diffusion_policy_3d.policy.mambapolicy.MambaPolicy
   use_point_crop: true
   condition_type: film
   use_down_condition: true
   use_mid_condition: true
   use_up_condition: true
+
+  use_mamba: true
+  mamba_type: unet1D        
+  depth: 8
+  mamba_version: mambavision_v1
   
   diffusion_step_embed_dim: 128
   down_dims:
+  - 128
+  - 256
   - 512
-  - 1024
-  - 2048
   crop_shape:
-  - 84
-  - 84
+  - 80
+  - 80
   encoder_output_dim: 64
   horizon: ${horizon}
   kernel_size: 5
   n_action_steps: ${n_action_steps}
   n_groups: 8
   n_obs_steps: ${n_obs_steps}
-  
+
+  noise_scheduler:
+    _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
+    num_train_timesteps: 100
+    beta_start: 0.0001
+    beta_end: 0.02
+    beta_schedule: squaredcos_cap_v2
+    clip_sample: True
+    set_alpha_to_one: True
+    steps_offset: 0
+    prediction_type: sample
+
+
+  num_inference_steps: 10
   obs_as_global_cond: true
   shape_meta: ${shape_meta}
 
   use_pc_color: false
-  pointnet_type: pointnet
+  pointnet_type: "pointnet"
 
 
   pointcloud_encoder_cfg:
@@ -53,6 +70,7 @@ policy: &policy_base
     use_layernorm: true
     final_norm: layernorm # layernorm, none
     normal_channel: false
+    use_mamba: false
 
   collect_data: False
   collect_data_path: null
@@ -102,43 +120,40 @@ training: &training_base
   debug: False
   resume: True
   lr_scheduler: cosine
-  lr_warmup_steps: 500
-  num_epochs: 3000
+  lr_warmup_steps: 200 #500
+  num_epochs: 1000 #3000
   gradient_accumulate_every: 1
   use_ema: True
-  rollout_every: 200
-  checkpoint_every: 200
+  rollout_every: 50 #200
+  checkpoint_every: 50 #200
   val_every: 1
   sample_every: 5
   max_train_steps: null
   max_val_steps: null
   tqdm_interval_sec: 1.0
-  # max_grad_norm: 1.0 #no used in code
-  # ema_decay: 0.95
-  load_eval_checkpoint_type : best
+  load_eval_checkpoint_type : latest
 
 training_reducted:
   <<: *training_base
-  # lr_warmup_steps: 500
-  # num_epochs: 3000
-  # gradient_accumulate_every: 1
-  # use_ema: True
-  # rollout_every: 200
-  # checkpoint_every: 200
-  load_eval_checkpoint_type : best
+  lr_warmup_steps: 50
+  num_epochs: 500
+  gradient_accumulate_every: 1
+  use_ema: True
+  rollout_every: 25
+  checkpoint_every: 25
+  load_eval_checkpoint_type : latest
   load_origin_checkpoint_type : latest #best #or latest
 
-
-
-logging:
+logging: &logging_base
   group: ${exp_name}
   id: null
   mode: online
+  # name: ${training.seed}
   name: ${exp_name}_${training.seed}
-  project: flowpolicy
+  project: mambapolicy
   resume: true
   tags:
-  - flowpolicy
+  - mambapolicy
 
 checkpoint:
   save_ckpt: False # if True, save checkpoint every checkpoint_every

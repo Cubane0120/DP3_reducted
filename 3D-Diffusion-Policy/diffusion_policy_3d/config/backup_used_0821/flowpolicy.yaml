@@ -9,7 +9,7 @@ exp_name: "debug"
 
 horizon: 4
 n_obs_steps: 2
-n_action_steps: 3
+n_action_steps: 4
 n_latency_steps: 0
 dataset_obs_steps: ${n_obs_steps}
 keypoint_visible_rate: 1.0
@@ -115,7 +115,7 @@ training: &training_base
   tqdm_interval_sec: 1.0
   # max_grad_norm: 1.0 #no used in code
   # ema_decay: 0.95
-  load_eval_checkpoint_type : best
+  load_eval_checkpoint_type : latest
 
 training_reducted:
   <<: *training_base
@@ -125,7 +125,7 @@ training_reducted:
   # use_ema: True
   # rollout_every: 200
   # checkpoint_every: 200
-  load_eval_checkpoint_type : best
+  load_eval_checkpoint_type : latest
   load_origin_checkpoint_type : latest #best #or latest
 
 

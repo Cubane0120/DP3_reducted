@@ -1,8 +1,8 @@
 set -euo pipefail
 
-ALG="flowpolicy"
+ALG="mambapolicy"
 date="0825"
-gpu="1"
+gpu="2"
 
 
 ENVS=(

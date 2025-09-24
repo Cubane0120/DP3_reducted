@@ -76,13 +76,13 @@ class TrainDP3Workspace:
             cfg.training.num_epochs = 5
             cfg.training.max_train_steps = 5
             cfg.training.max_val_steps = 3
-            cfg.training.rollout_every = 2
-            cfg.training.checkpoint_every = 1
+            cfg.training.rollout_every = 5
+            cfg.training.checkpoint_every = 5
             cfg.training.val_every = 1
             cfg.training.sample_every = 1
             RUN_ROLLOUT = True
-            RUN_CKPT = False
-            verbose = True
+            RUN_CKPT = True
+            verbose = False
         else:
             RUN_ROLLOUT = True
             RUN_CKPT = True
@@ -323,11 +323,10 @@ class TrainDP3Workspace:
                 # since save_checkpoint uses threads.
                 # therefore at this point the file might have been empty!
 
-                #@@@@@@@ instantly not use!!!!!!!!!
-                # topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+                topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
                 
-                # if topk_ckpt_path is not None:
-                #     self.save_checkpoint(path=topk_ckpt_path)
+                if topk_ckpt_path is not None:
+                    self.save_checkpoint(path=topk_ckpt_path)
             # ========= eval end for this epoch ==========
             policy.train()
 
@@ -367,6 +366,8 @@ class TrainDP3Workspace:
         for key, value in runner_log.items():
             if isinstance(value, float):
                 cprint(f"{key}: {value:.4f}", 'magenta')
+        
+        self.check_fps()
         
     @property
     def output_dir(self):
@@ -498,44 +499,9 @@ class TrainDP3Workspace:
         return torch.load(open(path, 'rb'), pickle_module=dill)
     
     def collect_data(self):
-        # # set diff seed with eval
-        # seed = cfg.training.seed + "SVD"
-        # torch.manual_seed(seed)
-        # np.random.seed(seed)
-        # random.seed(seed)
-
-        # # load the latest checkpoint
-
-        # cfg = copy.deepcopy(self.cfg)
-
-        # #lastest_ckpt_path = self.get_checkpoint_path(tag="latest")
-        # lastest_ckpt_path = self.get_checkpoint_path(tag="best")
-        # if lastest_ckpt_path.is_file():
-        #     cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
-        #     self.load_checkpoint(path=lastest_ckpt_path)
-        # else:
-        #     assert False, f"Checkpoint {lastest_ckpt_path} does not exist. Please train the model first."
-
-        # # configure env
-        # env_runner: BaseRunner
-        # env_runner = hydra.utils.instantiate(
-        #     cfg.task.env_runner,
-        #     output_dir=self.output_dir)
-        # assert isinstance(env_runner, BaseRunner)
-        # policy = self.model
-        # if cfg.training.use_ema:
-        #     policy = self.ema_model
-        # policy.eval()
-        # policy.cuda()
-
-        # #runner_log = env_runner.run(policy)
-        # env_runner.run(policy)
-
-
-        # cprint(f"finish to collect data")
         cfg = copy.deepcopy(self.cfg)
 
-        ckpt_path = self.get_checkpoint_path(tag=cfg.training.load_eval_checkpoint_type)
+        ckpt_path = self.get_checkpoint_path(tag=cfg.training_reducted.load_origin_checkpoint_type)
         if ckpt_path.is_file():
             print(f"Resuming from checkpoint {ckpt_path}")
             self.load_checkpoint(path=ckpt_path)
@@ -565,7 +531,46 @@ class TrainDP3Workspace:
                         break
         cprint(f"finish to collect data")
 
+    def check_fps(self):
+        cfg = self.cfg
+        n_warmup = 50
+        n_iters = 100
         
+        B = 1   # batch size
+        To = cfg.n_obs_steps
+        N = cfg.task.shape_meta.obs.point_cloud.shape[0]
+        D_pc = 6 #if point cloud with RGB
+        D_agent = cfg.task.shape_meta.obs.agent_pos.shape[0]
+
+        policy = self.model
+        if cfg.training.use_ema:
+            policy = self.ema_model
+        policy.eval()
+        policy.cuda()
+        
+        obs_dict = {
+            "point_cloud": torch.randn(B, To, N, D_pc, device=cfg.training.device, dtype=policy.dtype),
+            "agent_pos": torch.randn(B, To, D_agent, device=cfg.training.device, dtype=policy.dtype),
+        }
+        
+        with torch.inference_mode():
+            for _ in range(n_warmup):
+                _ = policy.predict_action(obs_dict)
+
+        torch.cuda.synchronize()
+        t0 = time.perf_counter()
+
+        with torch.inference_mode():
+            for _ in range(n_iters):
+                _ = policy.predict_action(obs_dict)
+
+        torch.cuda.synchronize()
+        t1 = time.perf_counter()
+
+        elapsed = t1 - t0
+        fps = n_iters / elapsed
+        print(f"inference_fps: {fps:.4f}")
+
 @hydra.main(
     version_base=None,
     config_path=str(pathlib.Path(__file__).parent.joinpath(

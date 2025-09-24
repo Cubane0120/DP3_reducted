@@ -78,8 +78,6 @@ class MetaworldRunner(BaseRunner):
             traj_reward = 0
             is_success = False
             while not done:
-                torch.cuda.synchronize()             # GPU 동기화
-                t0 = time.perf_counter()
                 np_obs_dict = dict(obs)
                 obs_dict = dict_apply(np_obs_dict,
                                       lambda x: torch.from_numpy(x).to(
@@ -90,11 +88,8 @@ class MetaworldRunner(BaseRunner):
                     obs_dict_input['point_cloud'] = obs_dict['point_cloud'].unsqueeze(0)
                     obs_dict_input['agent_pos'] = obs_dict['agent_pos'].unsqueeze(0)
                     action_dict = policy.predict_action(obs_dict_input)
-
-                torch.cuda.synchronize() 
-                t1 = time.perf_counter()
-                total_inference_time.append(t1 - t0)
-
+        
+    
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
                 action = np_action_dict['action'].squeeze(0)
@@ -108,9 +103,6 @@ class MetaworldRunner(BaseRunner):
 
             all_success_rates.append(is_success)
             all_traj_rewards.append(traj_reward)
-        
-        total_inference_time = np.array(total_inference_time[1:])
-        inference_fps = 1 / np.mean(total_inference_time)
         max_rewards = collections.defaultdict(list)
         log_data = dict()
 
@@ -120,7 +112,6 @@ class MetaworldRunner(BaseRunner):
         log_data['test_mean_score'] = np.mean(all_success_rates)
         
         cprint(f"test_mean_score: {np.mean(all_success_rates)}", 'green')
-        cprint(f"inference_fps: {inference_fps}", 'green')
         self.logger_util_test.record(np.mean(all_success_rates))
         self.logger_util_test10.record(np.mean(all_success_rates))
         log_data['SR_test_L3'] = self.logger_util_test.average_of_largest_K()

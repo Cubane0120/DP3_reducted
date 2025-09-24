@@ -136,16 +136,16 @@ class MambaVisionBlock(nn.Module):
                  ):
         super().__init__()
 
-        cprint(f'Using Mamba {mamba_type} version', 'yellow')
+        #cprint(f'Using Mamba {mamba_type} version', 'yellow')
         self.norm1 = norm_layer(dim)
         if mamba_type == 'v1':
             self.mixer = Mamba(d_model=dim)
-        elif mamba_type == 'v2':
-            self.mixer = Mamba2(d_model=dim, headdim=32)
-        elif mamba_type == 'bi':
-            self.mixer = Mamba(d_model=dim, bimamba=True)
-        elif mamba_type == 'hydra':
-            self.mixer = Hydra(d_model=dim)
+        # elif mamba_type == 'v2':
+        #     self.mixer = Mamba2(d_model=dim, headdim=32)
+        # elif mamba_type == 'bi':
+        #     self.mixer = Mamba(d_model=dim, bimamba=True)
+        # elif mamba_type == 'hydra':
+        #     self.mixer = Hydra(d_model=dim)
         else:
             NotImplementedError(f"mamba_type {mamba_type} not implemented")
                  
@@ -572,6 +572,7 @@ class ConditionalUnet1D(nn.Module):
         if mamba_version:
             UnitBlock = ConditionalMambaResidualBlock1D
             UnitBlock.mamba_version = mamba_version
+            cprint(f'Using Mamba {mamba_version} version', 'yellow')
         else:
             UnitBlock = ConditionalResidualBlock1D
 
@@ -673,6 +674,8 @@ class ConditionalUnet1D(nn.Module):
         )
         print_params(self)
 
+        print(f"num_param: {sum(p.numel() for p in self.parameters())}")
+
         if path_basis_h1 is not None or path_basis_h2 is not None:
             for p in self.parameters():
                 p.requires_grad = False
@@ -747,12 +750,11 @@ class ConditionalUnet1D(nn.Module):
                     x = x + h_local[0]
                 x = resnet2(x)
             
-            # ver 2
             if self.path_basis_h1 is not None and idx == 1:
                 x_ = self.reductor_h1_conv(x)
                 h.append(x_)
             elif self.path_basis_h2 is not None and idx == 2:
-                x= self.reductor_h2_conv(x)
+                x = self.reductor_h2_conv(x)
                 h.append(x)
             else:
                 h.append(x)
