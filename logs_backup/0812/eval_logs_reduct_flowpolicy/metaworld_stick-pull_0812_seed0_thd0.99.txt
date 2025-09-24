@@ -1,0 +1,5 @@
+k_h1: 192
+k_h2: 672
+test_mean_score: 0.75
+inference_fps: 97.37117662207194
+test_mean_score: 0.7500

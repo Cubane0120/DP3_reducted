@@ -1,0 +1,5 @@
+k_h1: 216
+k_h2: 104
+num_param: 110427828
+inference_fps: 100.4520212030575
+test_mean_score: 0.8500

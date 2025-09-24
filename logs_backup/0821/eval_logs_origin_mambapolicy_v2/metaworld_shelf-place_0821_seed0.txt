@@ -1,0 +1,3 @@
+num_param: 47853060
+inference_fps: 6.703448996774387
+test_mean_score: 0.4500
