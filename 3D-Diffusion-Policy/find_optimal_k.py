@@ -33,45 +33,68 @@ def write_basis_files(h1_in, a, h2_in, b, seed=0):
 
 @torch.inference_mode()
 def bench_one_model(model, B, T, input_dim, global_cond_dim=None, 
-                    n_warmup=50, n_iters=100, device="cuda"):
+                    n_warmup=200, n_iters=100, device="cuda"):
     """
     주어진 모델의 단일 forward 시간(평균)을 측정.
     """
+    inner_repeats = 10
+    
     device = torch.device(device if torch.cuda.is_available() else "cpu")
     model = model.to(device).eval()
+    
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
 
     with torch.inference_mode():
+        times = [] 
+        x = torch.empty(B, T, input_dim, device=device)
+        t = torch.empty(B, dtype=torch.long, device=device)
+        g = None
+        if global_cond_dim is not None:
+            g = torch.empty(B, global_cond_dim, device=device)
+            
         for _ in range(n_warmup):
-            x = torch.randn(B, T, input_dim, device=device)
-            # timestep: (B,)
-            t = torch.randint(low=0, high=1000, size=(B,), device=device)
-            # global_cond: (B, global_cond_dim) or None
-            g = None
-            if global_cond_dim is not None:
-                g = torch.randn(B, global_cond_dim, device=device)
-                
+            x.normal_()
+            t.random_(0, 1000)
+            if g is not None:
+                g.normal_()
             _ = model(x, t, local_cond=None, global_cond=g)
             
-        total_time = 0.0
+        times_ms = []
+        start_ev = torch.cuda.Event(enable_timing=True)
+        end_ev = torch.cuda.Event(enable_timing=True)
+
         for _ in range(n_iters):
-            x = torch.randn(B, T, input_dim, device=device)
-            # timestep: (B,)
-            t = torch.randint(low=0, high=1000, size=(B,), device=device)
-            # global_cond: (B, global_cond_dim) or None
-            g = None
-            if global_cond_dim is not None:
-                g = torch.randn(B, global_cond_dim, device=device)
-                
             torch.cuda.synchronize() if device.type == "cuda" else None
-            start = time.time()
+            start_ev.record() if device.type == "cuda" else None
+            wall_start = time.time()
         
-            _ = model(x, t, local_cond=None, global_cond=g)
+            for _inner in range(inner_repeats):
+                x.normal_()
+                t.random_(0, 1000)
+                if g is not None:
+                    g.normal_()
+                _ = model(x, t, local_cond=None, global_cond=g)
 
             torch.cuda.synchronize() if device.type == "cuda" else None
-            end = time.time()
-            total_time += (end - start)
-        
-    return total_time / n_iters *1000 # sec/iter
+            end_ev.record()
+            torch.cuda.synchronize()
+            elapsed_ms = start_ev.elapsed_time(end_ev)  # ms (전체 inner_repeats 포함)
+
+            per_iter_ms = elapsed_ms / inner_repeats
+            times_ms.append(per_iter_ms)
+            
+    trim_ratio = 0.1
+    arr = np.array(times_ms, dtype=np.float64)
+    if 0.0 < trim_ratio < 0.5:
+        lo = np.quantile(arr, trim_ratio)
+        hi = np.quantile(arr, 1 - trim_ratio)
+        arr = arr[(arr >= lo) & (arr <= hi)]
+
+    return float(np.median(arr))
 
 def build_model_with_ab(
     a, b,
@@ -99,7 +122,7 @@ def build_model_with_ab(
     h2_in = down_dims[2]
 
     path_basis_h1, path_basis_h2, tmpdir = write_basis_files(h1_in, a, h2_in, b)
-
+        
     model = ConditionalUnet1D(
         input_dim=input_dim,
         local_cond_dim=None,
@@ -169,7 +192,7 @@ def benchmark_grid(
                 n_warmup=n_warmup, n_iters=n_iters,
                 device=device
             )
-            rows.append({"a": a, "b": b, "sec_per_iter": sec})
+            rows.append({"a": a, "b": b, "ms_per_iter": sec})
         finally:
             # 임시 basis 디렉터리 정리
             tmpdir = getattr(model, "_tmpdir_for_bases", None)
@@ -204,11 +227,12 @@ if __name__ == "__main__":
     mamba_version = None      # "mambavision_v1" 등을 쓰는 경우 지정
 
     # 벤치 설정
-    B, T = 1, 16               # 실제 시나리오에 맞게
-    # a_list = [val for val in range(32, 256, 32)]
-    # b_list = [val for val in range(32, 512, 32)]
-    a_list = [val for val in range(32, 96, 8)]
-    b_list = [val for val in range(32, 256, 8)]
+    B, T = 1, 4               # 실제 시나리오에 맞게
+
+    
+    a_list = [val for val in range(8, 512 + 1, 8)]
+    b_list = [val for val in range(16, 1024 + 1, 8)]
+
     df = benchmark_grid(
         a_list, b_list,
         input_dim=input_dim,
@@ -227,3 +251,25 @@ if __name__ == "__main__":
         device="cuda",
     )
     print(df.to_string(index=False))
+    
+    import os, time
+    os.makedirs("bench_out", exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+
+    # 1) Long-form 원본 저장 (엑셀/CSV)
+    raw_csv = f"bench_out/ab_bench_raw_{stamp}.csv"
+    df.to_csv(raw_csv, index=False, encoding="utf-8-sig")
+
+
+    # 2) 2D 피벗(행=b, 열=a, 값=ms_per_iter)
+    pivot = (
+        df.pivot(index="b", columns="a", values="ms_per_iter")
+          .sort_index()
+          .sort_index(axis=1)
+          .round(3)
+    )
+    pivot_csv = f"bench_out/ab_bench_pivot_ms_per_iter_{stamp}.csv"
+    pivot.to_csv(pivot_csv, encoding="utf-8-sig", float_format="%.3f")
+
+
+    print(f"\n[저장됨]\n- raw:   {raw_csv}\n- pivot: {pivot_csv}")

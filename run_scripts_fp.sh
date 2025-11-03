@@ -2,7 +2,7 @@ set -euo pipefail
 
 ALG="flowpolicy"
 date="0825"
-gpu="1"
+gpu="3"
 
 
 ENVS=(

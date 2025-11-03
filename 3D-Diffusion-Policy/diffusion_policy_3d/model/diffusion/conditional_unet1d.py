@@ -13,7 +13,7 @@ from diffusion_policy_3d.common.model_util import print_params
 import numpy as np
 import os
 
-from mamba_ssm.modules.mamba_simple import Mamba
+# from mamba_ssm.modules.mamba_simple import Mamba
 # try:
 #     from diffusion_policy_3d.model.diffusion.hydra_ssm import Hydra
 # except ImportError:

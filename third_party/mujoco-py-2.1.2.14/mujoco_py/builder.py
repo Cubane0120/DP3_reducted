@@ -32,7 +32,7 @@ def get_nvidia_lib_dir():
     if exists(docker_path):
         return docker_path
 
-    nvidia_path = '/usr/lib/nvidia'
+    nvidia_path = '/lib/x86_64-linux-gnu'#'/usr/lib/nvidia'
     if exists(nvidia_path):
         return nvidia_path
 
