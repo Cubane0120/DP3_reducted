@@ -1,5 +1,9 @@
 defaults:
   - task: adroit_hammer
+  
+task:
+  env_runner:
+    eval_episodes: 50
 
 name: train_dp3
 
@@ -71,12 +75,15 @@ policy: &policy_base
   collect_data_path: null
   path_basis_h1: null
   path_basis_h2: null
+  freezing_early_module : true
+  using_baseline : false
 
 policy_reducted:
   <<: *policy_base
   path_basis_h1: True
   path_basis_h2: True
-  
+  freezing_early_module : true
+  using_baseline : false
 
 ema:
   _target_: diffusion_policy_3d.model.diffusion.ema_model.EMAModel

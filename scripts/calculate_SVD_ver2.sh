@@ -16,8 +16,8 @@ gpu_id=${5}
 
 cd 3D-Diffusion-Policy
 
-k1=32
-k2=200
+k1=${6}
+k2=${7}
 
 export HYDRA_FULL_ERROR=1
 export CUDA_VISIBLE_DEVICES=${gpu_id}

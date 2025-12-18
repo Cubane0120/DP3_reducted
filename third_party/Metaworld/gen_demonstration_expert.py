@@ -42,7 +42,18 @@ def main(args):
 	os.makedirs(save_dir, exist_ok=True)
 
 	e = MetaWorldEnv(env_name, device="cuda:0", use_point_crop=True)
-	
+	print("target:", getattr(e.env, "_target_pos", None))
+	raw = e.reset()['full_state']
+	print("raw tail:", raw[-6:])   # goal이 붙는 포맷이면 보통 뒤쪽에 목표가 있음
+	try:
+		mw_obs = e.env._get_obs()   # 또는 e._env._get_obs()
+		print("raw.shape:", raw.shape, "mw_obs.shape:", mw_obs.shape, "raw==mw_obs:", np.allclose(raw, mw_obs))
+	except Exception as ex:
+		print("cannot access underlying mw obs:", ex)
+ 
+ 
+	video_dir = os.path.join(args.root_dir, "tmp_videos")
+	os.makedirs(video_dir, exist_ok=True)
 	num_episodes = args.num_episodes
 	cprint(f"Number of episodes : {num_episodes}", "yellow")
 	
@@ -61,7 +72,7 @@ def main(args):
 	
 
 	mw_policy = load_mw_policy(env_name)
-	
+	print("POLICY:", mw_policy.__class__.__name__)
 	# loop over episodes
 	while episode_idx < num_episodes:
 		raw_state = e.reset()['full_state']
@@ -110,12 +121,20 @@ def main(args):
 
 			ep_success = ep_success or info['success']
 			ep_success_times += info['success']
-   
+			if total_count_sub == 1:
+				print("action min/max:", action.min(), action.max())
+
 			if done:
+				print("DONE at step", total_count_sub, "info:", info)
 				break
 		
+		# TEMP: save video
+		vid = np.stack(img_arrays_sub, 0)
+		if vid.shape[1] == 3:  # CHW -> HWC
+			vid = np.transpose(vid, (0,2,3,1))
+		imageio.mimwrite(os.path.join(video_dir, f"{env_name}_{episode_idx}.mp4"), vid, fps=30)
 
-		if not ep_success or ep_success_times < 5:
+		if not ep_success or (ep_success_times < 5 and env_name != 'handle-press-side'):
 			cprint(f'Episode: {episode_idx} failed with reward {ep_reward} and success times {ep_success_times}', 'red')
 			continue
 		else:

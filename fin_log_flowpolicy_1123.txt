@@ -1,0 +1,54 @@
+bash: /SSDa/dongwoo_nam/hsh/DP3_reducted/local_conda/dp3_reducted/lib/libtinfo.so.6: no version information available (required by bash)
+/SSDa/dongwoo_nam/hsh/DP3_reducted/local_conda/dp3_reducted/lib/python3.8/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/SSDa/dongwoo_nam/hsh/DP3_reducted/local_conda/dp3_reducted/lib/python3.8/site-packages/hydra/_internal/defaults_list.py:251: UserWarning: In 'flowpolicy.yaml': Defaults list is missing `_self_`. See https://hydra.cc/docs/upgrades/1.0_to_1.1/default_composition_order for more information
+  warnings.warn(msg, UserWarning)
+threshold =  fixed
+[DP3Encoder] point cloud shape: [512, 3]
+[DP3Encoder] state shape: [9]
+[DP3Encoder] imagination point shape: None
+[PointNetEncoderXYZ] use_layernorm: True
+[PointNetEncoderXYZ] use_final_norm: layernorm
+[DP3Encoder] output dim: 128
+[FlowUnetHybridPointcloudPolicy] use_pc_color: False
+[FlowUnetHybridPointcloudPolicy] pointnet_type: pointnet
+k_h1: 40
+k_h2: 80
+[2025-11-24 14:27:16,304][diffusion_policy_3d.model.diffusion.conditional_unet1d][INFO] - number of parameters: 1.089716e+08
+/SSDa/dongwoo_nam/hsh/DP3_reducted/third_party/gym-0.21.0/gym/logger.py:34: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  warnings.warn(colorize("%s: %s" % ("WARN", msg % args), "yellow"))
+----------------------------------
+Class name: ConditionalUnet1D
+  Number of parameters: 108.9716M
+   reductor_h1_conv: 0.0410M (0.04%)
+   reductor_h2_conv: 0.1638M (0.15%)
+   mid_modules: 0.2522M (0.23%)
+   diffusion_step_encoder: 0.1317M (0.12%)
+   up_modules: 0.5461M (0.50%)
+   down_modules: 107.8159M (98.94%)
+   final_conv: 0.0209M (0.02%)
+----------------------------------
+num_param: 108971620
+[ConditionalUnet1D] using path basis h1: %s data/outputs/metaworld_pick-place-wall-flowpolicy-1123_seed0/basis/threshold_fixed/latent_h1.npy
+[ConditionalUnet1D] using path basis h2: %s data/outputs/metaworld_pick-place-wall-flowpolicy-1123_seed0/basis/threshold_fixed/latent_h2.npy
+freezing model without up_modules and final_conv
+----------------------------------
+Class name: FlowPolicy
+  Number of parameters: 109.0355M
+   _dummy_variable: 0.0000M (0.00%)
+   obs_encoder: 0.0639M (0.06%)
+   model: 108.9716M (99.94%)
+   mask_generator: 0.0000M (0.00%)
+----------------------------------
+checkpoints_reducted_threshold=fixed
+Resuming from checkpoint /SSDa/dongwoo_nam/hsh/DP3_reducted/3D-Diffusion-Policy/data/outputs/metaworld_pick-place-wall-flowpolicy-1123_seed0/checkpoints_reducted_threshold=fixed/epoch=0400-test_mean_score=1.000.ckpt
+[MetaWorldEnv] use_point_crop: True
+Eval in Metaworld pick-place-wall Pointcloud Env:   0%|          | 0/20 [00:00<?, ?it/s]Eval in Metaworld pick-place-wall Pointcloud Env:  10%|█         | 2/20 [00:06<00:54,  3.00s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  20%|██        | 4/20 [00:11<00:46,  2.93s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  30%|███       | 6/20 [00:17<00:40,  2.91s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  40%|████      | 8/20 [00:23<00:34,  2.87s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  50%|█████     | 10/20 [00:28<00:28,  2.83s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  60%|██████    | 12/20 [00:34<00:22,  2.85s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  70%|███████   | 14/20 [00:40<00:17,  2.86s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  80%|████████  | 16/20 [00:45<00:11,  2.87s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  90%|█████████ | 18/20 [00:51<00:05,  2.87s/it]Eval in Metaworld pick-place-wall Pointcloud Env: 100%|██████████| 20/20 [00:57<00:00,  2.88s/it]                                                                                                 test_mean_score: 0.8
+---------------- Eval Results --------------
+mean_traj_rewards: 24556.6651
+mean_success_rates: 0.8000
+test_mean_score: 0.8000
+SR_test_L3: 0.8000
+SR_test_L5: 0.8000
+inference_fps: 136.0475
+Found 8 GPUs for rendering. Using device 0.

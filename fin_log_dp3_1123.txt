@@ -1,0 +1,54 @@
+bash: /SSDa/dongwoo_nam/hsh/DP3_reducted/local_conda/dp3_reducted/lib/libtinfo.so.6: no version information available (required by bash)
+/SSDa/dongwoo_nam/hsh/DP3_reducted/local_conda/dp3_reducted/lib/python3.8/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/SSDa/dongwoo_nam/hsh/DP3_reducted/local_conda/dp3_reducted/lib/python3.8/site-packages/hydra/_internal/defaults_list.py:251: UserWarning: In 'dp3.yaml': Defaults list is missing `_self_`. See https://hydra.cc/docs/upgrades/1.0_to_1.1/default_composition_order for more information
+  warnings.warn(msg, UserWarning)
+threshold =  fixed
+[DP3Encoder] point cloud shape: [512, 3]
+[DP3Encoder] state shape: [9]
+[DP3Encoder] imagination point shape: None
+[PointNetEncoderXYZ] use_layernorm: True
+[PointNetEncoderXYZ] use_final_norm: layernorm
+[DP3Encoder] output dim: 128
+[DiffusionUnetHybridPointcloudPolicy] use_pc_color: False
+[DiffusionUnetHybridPointcloudPolicy] pointnet_type: pointnet
+k_h1: 40
+k_h2: 80
+[2025-11-24 17:23:24,733][diffusion_policy_3d.model.diffusion.conditional_unet1d][INFO] - number of parameters: 1.089716e+08
+/SSDa/dongwoo_nam/hsh/DP3_reducted/third_party/gym-0.21.0/gym/logger.py:34: UserWarning: [33mWARN: Box bound precision lowered by casting to float32[0m
+  warnings.warn(colorize("%s: %s" % ("WARN", msg % args), "yellow"))
+----------------------------------
+Class name: ConditionalUnet1D
+  Number of parameters: 108.9716M
+   reductor_h1_conv: 0.0410M (0.04%)
+   reductor_h2_conv: 0.1638M (0.15%)
+   mid_modules: 0.2522M (0.23%)
+   diffusion_step_encoder: 0.1317M (0.12%)
+   up_modules: 0.5461M (0.50%)
+   down_modules: 107.8159M (98.94%)
+   final_conv: 0.0209M (0.02%)
+----------------------------------
+num_param: 108971620
+[ConditionalUnet1D] using path basis h1: %s data/outputs/metaworld_pick-place-wall-dp3-1123_seed0/basis/threshold_fixed/latent_h1.npy
+[ConditionalUnet1D] using path basis h2: %s data/outputs/metaworld_pick-place-wall-dp3-1123_seed0/basis/threshold_fixed/latent_h2.npy
+freezing model without up_modules and final_conv
+----------------------------------
+Class name: DP3
+  Number of parameters: 109.0355M
+   _dummy_variable: 0.0000M (0.00%)
+   obs_encoder: 0.0639M (0.06%)
+   model: 108.9716M (99.94%)
+   mask_generator: 0.0000M (0.00%)
+----------------------------------
+checkpoints_reducted_threshold=fixed
+Resuming from checkpoint /SSDa/dongwoo_nam/hsh/DP3_reducted/3D-Diffusion-Policy/data/outputs/metaworld_pick-place-wall-dp3-1123_seed0/checkpoints_reducted_threshold=fixed/epoch=0450-test_mean_score=0.950.ckpt
+[MetaWorldEnv] use_point_crop: True
+Eval in Metaworld pick-place-wall Pointcloud Env:   0%|          | 0/20 [00:00<?, ?it/s]Eval in Metaworld pick-place-wall Pointcloud Env:   5%|▌         | 1/20 [00:08<02:44,  8.68s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  10%|█         | 2/20 [00:16<02:22,  7.91s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  15%|█▌        | 3/20 [00:23<02:10,  7.66s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  20%|██        | 4/20 [00:30<02:00,  7.53s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  25%|██▌       | 5/20 [00:38<01:52,  7.47s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  30%|███       | 6/20 [00:45<01:43,  7.39s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  35%|███▌      | 7/20 [00:52<01:35,  7.35s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  40%|████      | 8/20 [00:59<01:28,  7.36s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  45%|████▌     | 9/20 [01:07<01:20,  7.34s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  50%|█████     | 10/20 [01:14<01:13,  7.32s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  55%|█████▌    | 11/20 [01:21<01:05,  7.30s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  60%|██████    | 12/20 [01:29<00:58,  7.33s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  65%|██████▌   | 13/20 [01:36<00:51,  7.31s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  70%|███████   | 14/20 [01:43<00:44,  7.33s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  75%|███████▌  | 15/20 [01:51<00:36,  7.31s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  80%|████████  | 16/20 [01:58<00:29,  7.33s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  85%|████████▌ | 17/20 [02:05<00:21,  7.31s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  90%|█████████ | 18/20 [02:13<00:14,  7.33s/it]Eval in Metaworld pick-place-wall Pointcloud Env:  95%|█████████▌| 19/20 [02:20<00:07,  7.31s/it]Eval in Metaworld pick-place-wall Pointcloud Env: 100%|██████████| 20/20 [02:27<00:00,  7.32s/it]                                                                                                 test_mean_score: 0.85
+---------------- Eval Results --------------
+mean_traj_rewards: 28551.4498
+mean_success_rates: 0.8500
+test_mean_score: 0.8500
+SR_test_L3: 0.8500
+SR_test_L5: 0.8500
+inference_fps: 14.0492
+Found 8 GPUs for rendering. Using device 0.

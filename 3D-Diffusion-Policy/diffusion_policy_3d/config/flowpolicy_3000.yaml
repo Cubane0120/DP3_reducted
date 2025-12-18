@@ -1,6 +1,10 @@
 defaults:
   - task: adroit_hammer
 
+task:
+  env_runner:
+    eval_episodes: 50
+    
 name: train_flowpolicy
 
 task_name: ${task.name}
@@ -58,11 +62,15 @@ policy: &policy_base
   collect_data_path: null
   path_basis_h1: null
   path_basis_h2: null
+  freezing_early_module : true
+  using_baseline : false
 
 policy_reducted:
   <<: *policy_base
   path_basis_h1: True
   path_basis_h2: True
+  freezing_early_module : true
+  using_baseline : false
 
 ema:
   _target_: diffusion_policy_3d.model.diffusion.ema_model.EMAModel
@@ -103,11 +111,11 @@ training: &training_base
   resume: True
   lr_scheduler: cosine
   lr_warmup_steps: 200
-  num_epochs: 1000
+  num_epochs: 3000
   gradient_accumulate_every: 1
   use_ema: True
-  rollout_every: 59
-  checkpoint_every: 50
+  rollout_every: 200
+  checkpoint_every: 200
   val_every: 1
   sample_every: 5
   max_train_steps: null
@@ -120,11 +128,11 @@ training: &training_base
 training_reducted:
   <<: *training_base
   lr_warmup_steps: 100
-  num_epochs: 500
+  num_epochs: 1500
   gradient_accumulate_every: 1
   use_ema: True
-  rollout_every: 50
-  checkpoint_every: 50
+  rollout_every: 100
+  checkpoint_every: 100
   load_eval_checkpoint_type : best #latest
   load_origin_checkpoint_type : best #latest #best #or latest
 

@@ -71,6 +71,8 @@ class TrainDP3Workspace:
         self.global_step = 0
         self.epoch = 1
 
+        self.checkpoints_dir = self.checkpoints_name()
+        print(self.checkpoints_dir)
 
     def run(self):
         cfg = copy.deepcopy(self.cfg)
@@ -105,18 +107,19 @@ class TrainDP3Workspace:
 
                 flag = True
 
-        # training from unreducted model
-        if not flag:
-            # origin_ckpt_path = self.get_checkpoint_path(reducted=False, tag='latest')
-            origin_ckpt_path = self.get_checkpoint_path(reducted=False, tag=cfg.training_reducted.load_origin_checkpoint_type)
-            if origin_ckpt_path.is_file():
-                print(f"Resuming from checkpoint {origin_ckpt_path}")
-                print(f"start training model with reducction from non-reducted checkpoint")
-                self.load_checkpoint_partially(path=origin_ckpt_path)
-            else:
-                raise FileNotFoundError(
-                    f"Checkpoint {origin_ckpt_path} not found. "
-                    "Please run training first to create a checkpoint of non-reducted ver.")
+        if not cfg.policy_reducted.using_baseline:
+            # training from unreducted model
+            if not flag:
+                # origin_ckpt_path = self.get_checkpoint_path(reducted=False, tag='latest')
+                origin_ckpt_path = self.get_checkpoint_path(reducted=False, tag=cfg.training_reducted.load_origin_checkpoint_type)
+                if origin_ckpt_path.is_file():
+                    print(f"Resuming from checkpoint {origin_ckpt_path}")
+                    print(f"start training model with reducction from non-reducted checkpoint")
+                    self.load_checkpoint_partially(path=origin_ckpt_path)
+                else:
+                    raise FileNotFoundError(
+                        f"Checkpoint {origin_ckpt_path} not found. "
+                        "Please run training first to create a checkpoint of non-reducted ver.")
 
 
         # configure dataset
@@ -170,7 +173,14 @@ class TrainDP3Workspace:
         cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
         cprint("-----------------------------", "yellow")
         # configure logging
-        wandb_dir = pathlib.Path(self.output_dir) / f"reducted_threshold_{self.cfg.threshold}"
+        
+        wandb_dir_name_str = f"reducted_threshold={self.cfg.threshold}"
+        if self.cfg.policy_reducted.using_baseline:
+            wandb_dir_name_str = wandb_dir_name_str + "_baseline"
+        elif self.cfg.whitening:
+            wandb_dir_name_str = wandb_dir_name_str + "_whitening"
+
+        wandb_dir = pathlib.Path(self.output_dir) / wandb_dir_name_str
         wandb_dir.mkdir(parents=True, exist_ok=True)
         wandb_run = wandb.init(
             dir=str(wandb_dir),
@@ -185,7 +195,7 @@ class TrainDP3Workspace:
 
         # configure checkpoint
         topk_manager = TopKCheckpointManager(
-            save_dir=os.path.join(self.output_dir, f"checkpoints_reducted_threshold={self.cfg.threshold}"),
+            save_dir=os.path.join(self.output_dir, self.checkpoints_dir),
             **cfg.checkpoint.topk
         )
 
@@ -405,7 +415,7 @@ class TrainDP3Workspace:
             include_keys=None,
             use_thread=False):
         if path is None:
-            path = pathlib.Path(self.output_dir).joinpath(f"checkpoints_reducted_threshold={self.cfg.threshold}", f'{tag}.ckpt')
+            path = pathlib.Path(self.output_dir).joinpath(self.checkpoints_dir, f'{tag}.ckpt')
         else:
             path = pathlib.Path(path)
         if exclude_keys is None:
@@ -445,7 +455,7 @@ class TrainDP3Workspace:
         if not reducted:
             path_name = "checkpoints"
         else:
-            path_name = f"checkpoints_reducted_threshold={self.cfg.threshold}"
+            path_name = self.checkpoints_dir
 
         if tag=='latest':
             return pathlib.Path(self.output_dir).joinpath(path_name, f'{tag}.ckpt')
@@ -591,7 +601,17 @@ class TrainDP3Workspace:
         elapsed = t1 - t0
         fps = n_iters / elapsed
         print(f"inference_fps: {fps:.4f}")
+        
+    def checkpoints_name(self):
+        checkpoints_name_str = f"checkpoints_reducted_threshold={self.cfg.threshold}"
+        
+        if self.cfg.policy_reducted.using_baseline:
+            checkpoints_name_str = checkpoints_name_str + "_baseline"
+        elif self.cfg.whitening:
+            checkpoints_name_str = checkpoints_name_str + "_whitening"
+            
 
+        return checkpoints_name_str
         
 @hydra.main(
     version_base=None,

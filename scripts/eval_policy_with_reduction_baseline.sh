@@ -1,13 +1,9 @@
-# Examples:
-# bash scripts/train_policy.sh dp3 adroit_hammer 0322 0 0
-# bash scripts/train_policy.sh dp3 dexart_laptop 0322 0 0
-# bash scripts/train_policy.sh simple_dp3 adroit_hammer 0322 0 0
-# bash scripts/train_policy.sh dp3 metaworld_basketball 0602 0 0
-
+# use the same command as training except the script
+# for example:
+# bash scripts/eval_policy.sh dp3 adroit_hammer 0322 0 0
 
 
 DEBUG=False
-save_ckpt=True
 
 alg_name=${1}
 task_name=${2}
@@ -17,11 +13,7 @@ seed=${4}
 exp_name=${task_name}-${alg_name}-${addition_info}
 run_dir="data/outputs/${exp_name}_seed${seed}"
 
-
-# gpu_id=$(bash scripts/find_gpu.sh)
 gpu_id=${5}
-echo -e "\033[33mgpu id (to use): ${gpu_id}\033[0m"
-
 threshold=${6}
 whitening=${7}
 
@@ -32,37 +24,24 @@ else
 fi
 
 #threshold="0.99" 
-#0.995
-
-
-if [ $DEBUG = True ]; then
-    wandb_mode=offline
-    # wandb_mode=online
-    echo -e "\033[33mDebug mode!\033[0m"
-    echo -e "\033[33mDebug mode!\033[0m"
-    echo -e "\033[33mDebug mode!\033[0m"
-else
-    wandb_mode=online
-    echo -e "\033[33mTrain mode\033[0m"
-fi
 
 cd 3D-Diffusion-Policy
 
-
-export HYDRA_FULL_ERROR=1 
+export HYDRA_FULL_ERROR=1
 export CUDA_VISIBLE_DEVICES=${gpu_id}
-python train_with_reduction.py --config-name=${config_name}.yaml \
+python eval_with_reduction.py --config-name=${config_name}.yaml \
                             task=${task_name} \
                             hydra.run.dir=${run_dir} \
-                            training.seed=${seed} \
                             training_reducted.debug=$DEBUG \
+                            training.seed=${seed} \
                             training_reducted.seed=${seed} \
                             training_reducted.device="cuda:0" \
                             exp_name=${exp_name} \
                             logging.mode=${wandb_mode} \
-                            logging.name=${exp_name}_${seed}_reducted_threshold_${threshold} \
                             checkpoint.save_ckpt=${save_ckpt} \
                             policy_reducted.path_basis_h1=${run_dir}/${basis_directory}/latent_h1.npy \
                             policy_reducted.path_basis_h2=${run_dir}/${basis_directory}/latent_h2.npy \
+                            policy_reducted.freezing_early_module="false" \
+                            policy_reducted.using_baseline="true" \
                             threshold=${threshold} \
                             +whitening=${whitening} \

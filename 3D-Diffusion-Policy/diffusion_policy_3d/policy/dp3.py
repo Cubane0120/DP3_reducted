@@ -45,6 +45,8 @@ class DP3(BasePolicy):
             collect_data_path=None,
             path_basis_h1=None,
             path_basis_h2=None,
+            freezing_early_module=True,
+            using_baseline=False,
             **kwargs):
         super().__init__()
 
@@ -107,6 +109,8 @@ class DP3(BasePolicy):
             collect_data_path=collect_data_path,
             path_basis_h1=path_basis_h1,
             path_basis_h2=path_basis_h2,
+            freezing_early_module=freezing_early_module,
+            using_baseline=using_baseline,
         )
 
         self.obs_encoder = obs_encoder

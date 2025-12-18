@@ -403,7 +403,7 @@ if __name__ == "__main__":
     # b_list = [128, 256]
     # base_configs = list(itertools.product(a_list, b_list))
 
-    base_configs = [(8*i, 16*i) for i in range(1,13)]
+    base_configs = [(8*i, 16*i) for i in range(1,65)]
 
     # base_configs = None
     # print(base_configs)
@@ -428,7 +428,8 @@ if __name__ == "__main__":
         use_up_condition=use_up_condition,
         mamba_version=mamba_version,
         B=B, T=T,
-        n_warmup=5000, n_iters=20, inner_repeats=1000,
+        # n_warmup=5000, n_iters=20, inner_repeats=1000,
+        n_warmup=5000, n_iters=30, inner_repeats=1000,
         #  n_warmup=5, n_iters=2, inner_repeats=1,
         device=device,
         reps=1
@@ -467,7 +468,8 @@ if __name__ == "__main__":
         use_up_condition=use_up_condition,
         mamba_version=mamba_version,
         B=B, T=T,
-        n_warmup=1000, n_iters=300, inner_repeats=30,
+        # n_warmup=1000, n_iters=300, inner_repeats=30,
+        n_warmup=1000, n_iters=300, inner_repeats=50,
         device=device,
         reps=30
     )

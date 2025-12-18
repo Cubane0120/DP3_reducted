@@ -59,7 +59,7 @@ def main(cfg):
         #U, S, VT = np.linalg.svd(X, full_matrices=False)  # S: (min(N, D),)
         U, S, VT = cp.linalg.svd(X_gpu, full_matrices=False)
 
-        print(S.shape)
+        # print(S.shape)
         # 4. Plot explained variance ratio
         # explained_variance_ratio = S**2 / np.sum(S**2)
         # accumulate_var_ratio = np.cumsum(explained_variance_ratio)
@@ -95,12 +95,23 @@ def main(cfg):
         #{str(threshold)}
         VT_k = VT[:k, :]              # (k, D)
         V_k = VT_k.T                  # (D, k) 
+        
+        alpha = 0.5
+        S_k = S[:k] # (k,)
+        V_k_whitening = V_k / (S_k**alpha)
+
+        
         V_k_cpu = cp.asnumpy(V_k)
+        V_k_whitening_cpu =  cp.asnumpy(V_k_whitening)
         
         save_dir = data_dir / f"threshold_fixed"
         save_dir.mkdir(parents=True, exist_ok=True)
         #np.save(data_path+f"_svd_basis_{prefix}.npy", V_k)  # shape: (D, k)        
         np.save(str(save_dir)+f"/{prefix}.npy", V_k_cpu)  # shape: (D, k)
+        
+        save_dir_whitening = data_dir / f"threshold_fixed_whitening"
+        save_dir_whitening.mkdir(parents=True, exist_ok=True)   
+        np.save(str(save_dir_whitening)+f"/{prefix}.npy", V_k_whitening_cpu)  # shape: (D, k)
 
 if __name__ == "__main__":
     main()

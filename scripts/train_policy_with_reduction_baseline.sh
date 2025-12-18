@@ -48,7 +48,6 @@ fi
 
 cd 3D-Diffusion-Policy
 
-
 export HYDRA_FULL_ERROR=1 
 export CUDA_VISIBLE_DEVICES=${gpu_id}
 python train_with_reduction.py --config-name=${config_name}.yaml \
@@ -64,5 +63,7 @@ python train_with_reduction.py --config-name=${config_name}.yaml \
                             checkpoint.save_ckpt=${save_ckpt} \
                             policy_reducted.path_basis_h1=${run_dir}/${basis_directory}/latent_h1.npy \
                             policy_reducted.path_basis_h2=${run_dir}/${basis_directory}/latent_h2.npy \
+                            policy_reducted.freezing_early_module="false" \
+                            policy_reducted.using_baseline="true" \
                             threshold=${threshold} \
                             +whitening=${whitening} \

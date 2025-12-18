@@ -45,6 +45,6 @@ easytrain.sh
 nohup.out
 output/
 
-custom_conda
+local_conda
 run_scripts_*
 bench_out

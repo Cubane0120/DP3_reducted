@@ -463,6 +463,8 @@ class ConditionalUnet1D(nn.Module):
         collect_data_path=None,
         path_basis_h1=None,
         path_basis_h2=None,
+        freezing_early_module=True,
+        using_baseline=False,
         mamba_version=None, #'mambavision_v1',
         ):
         super().__init__()
@@ -483,8 +485,9 @@ class ConditionalUnet1D(nn.Module):
                 kernel_size=1,
                 bias=False
             )
-            with torch.no_grad():
-                self.reductor_h1_conv.weight.copy_(reductor_t.t().unsqueeze(-1))
+            if not using_baseline:
+                with torch.no_grad():
+                    self.reductor_h1_conv.weight.copy_(reductor_t.t().unsqueeze(-1))
             k_h1 = reductor_t.shape[1]
             print(f"k_h1: {k_h1}")
         else:
@@ -506,8 +509,9 @@ class ConditionalUnet1D(nn.Module):
                 kernel_size=1,
                 bias=False
             )
-            with torch.no_grad():
-                self.reductor_h2_conv.weight.copy_(reductor_t.t().unsqueeze(-1))
+            if not using_baseline:
+                with torch.no_grad():
+                    self.reductor_h2_conv.weight.copy_(reductor_t.t().unsqueeze(-1))
             k_h2 = reductor_t.shape[1]
             print(f"k_h2: {k_h2}")
         else:
@@ -677,21 +681,24 @@ class ConditionalUnet1D(nn.Module):
         print(f"num_param: {sum(p.numel() for p in self.parameters())}")
 
         if path_basis_h1 is not None or path_basis_h2 is not None:
-            for p in self.parameters():
-                p.requires_grad = False
-
-            for p in self.mid_modules.parameters():
-                p.requires_grad = True
-            for p in self.up_modules.parameters():
-                p.requires_grad = True
-            for p in self.final_conv.parameters():
-                p.requires_grad = True
-
-            
-            
             print(f"[ConditionalUnet1D] using path basis h1: %s", path_basis_h1)
             print(f"[ConditionalUnet1D] using path basis h2: %s", path_basis_h2)
-            print(f"freezing model without up_modules and final_conv")
+            
+            if freezing_early_module:
+                for p in self.parameters():
+                    p.requires_grad = False
+
+                for p in self.mid_modules.parameters():
+                    p.requires_grad = True
+                for p in self.up_modules.parameters():
+                    p.requires_grad = True
+                for p in self.final_conv.parameters():
+                    p.requires_grad = True
+
+                print(f"freezing model without up_modules and final_conv")
+            else:
+                for p in self.parameters():
+                    p.requires_grad = True
 
     def forward(self, 
             sample: torch.Tensor, 
