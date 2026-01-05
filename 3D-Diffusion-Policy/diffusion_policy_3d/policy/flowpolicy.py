@@ -42,12 +42,21 @@ class FlowPolicy(BasePolicy):
             pointcloud_encoder_cfg=None,
             Conditional_ConsistencyFM=None,           
             eta=0.01,
-            collect_data=False,
-            collect_data_path=None,
-            path_basis_h1=None,
-            path_basis_h2=None,
-            freezing_early_module=True,
-            using_baseline=False,
+            collect_outputTensor=False,
+            collect_outputTensor_path=None,
+            sampling_type=None,
+            using_projection=False,
+            percentVar = None,
+            projection_h1_dim=None,
+            projection_h2_dim=None,
+            projection_reduction_rate=4,
+            using_projection_SVD_init=False,
+            path_basis=None,
+            freezing_early_module=False,
+            freezing_obs_encoder=False,
+            freezing_diffusion_step_encoder=False,
+            pojection_is_trainable=False,
+            pojection_is_trainable_partially=False,
             **kwargs):
         super().__init__()
 
@@ -106,16 +115,28 @@ class FlowPolicy(BasePolicy):
             use_down_condition=use_down_condition,
             use_mid_condition=use_mid_condition,
             use_up_condition=use_up_condition,
-            collect_data=collect_data,
-            collect_data_path=collect_data_path,
-            path_basis_h1=path_basis_h1,
-            path_basis_h2=path_basis_h2,
+            collect_outputTensor=collect_outputTensor,
+            collect_outputTensor_path=collect_outputTensor_path,
+            sampling_type=sampling_type,
+            using_projection=using_projection,
+            projection_h1_dim = projection_h1_dim,
+            projection_h2_dim = projection_h2_dim,
+            projection_reduction_rate = projection_reduction_rate,
+            using_projection_SVD_init=using_projection_SVD_init,
+            path_basis=path_basis,
             freezing_early_module=freezing_early_module,
-            using_baseline=using_baseline,
+            freezing_diffusion_step_encoder=freezing_diffusion_step_encoder,
+            pojection_is_trainable=pojection_is_trainable,
+            pojection_is_trainable_partially=pojection_is_trainable_partially,
         )
         self.obs_encoder = obs_encoder
         self.model = model
         
+        if freezing_obs_encoder:
+            for p in self.obs_encoder.parameters():
+                p.requires_grad = False
+            print(f"freezing obs encoder")
+
         
         self.mask_generator = LowdimMaskGenerator(
             action_dim=action_dim,
@@ -364,3 +385,90 @@ class FlowPolicy(BasePolicy):
                      loss.item(),}
         
         return loss, loss_dict
+
+    def collect_outputTensor(self, batch, sampling_type, num_total_iter=100):
+        eps = self.eps
+        num_segments = self.num_segments
+        boundary = self.boundary
+        delta  = self.delta
+        alpha =  self.alpha
+        reduce_op = torch.mean
+        nobs = self.normalizer.normalize(batch['obs'])
+        nactions = self.normalizer['action'].normalize(batch['action'])
+        target = nactions
+
+        if not self.use_pc_color:
+            nobs['point_cloud'] = nobs['point_cloud'][..., :3]
+        batch_size = nactions.shape[0]
+        horizon = nactions.shape[1]
+        # handle different ways of passing observation
+        local_cond = None
+        global_cond = None
+        trajectory = nactions
+        cond_data = trajectory
+        
+        if self.obs_as_global_cond:
+            # reshape B, T, ... to B*T
+            this_nobs = dict_apply(nobs, 
+                lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
+            nobs_features = self.obs_encoder(this_nobs)
+
+            if "cross_attention" in self.condition_type:
+                # treat as a sequence
+                global_cond = nobs_features.reshape(batch_size, self.n_obs_steps, -1)
+            else:
+                # reshape back to B, Do
+                global_cond = nobs_features.reshape(batch_size, -1)
+            this_n_point_cloud = this_nobs['point_cloud'].reshape(batch_size,-1, *this_nobs['point_cloud'].shape[1:])
+            this_n_point_cloud = this_n_point_cloud[..., :3]
+        else:
+            # reshape B, T, ... to B*T
+            this_nobs = dict_apply(nobs, lambda x: x.reshape(-1, *x.shape[2:]))
+            nobs_features = self.obs_encoder(this_nobs)
+            # reshape back to B, T, Do
+            nobs_features = nobs_features.reshape(batch_size, horizon, -1)
+            cond_data = torch.cat([nactions, nobs_features], dim=-1)
+            trajectory = cond_data.detach()
+        # generate impainting mask
+        condition_mask = self.mask_generator(trajectory.shape)
+        # gt & noise
+        target = target
+
+        if sampling_type is None:
+            raise ValueError("sampling_type must be specified in collect_outputTensor")
+        elif sampling_type == "uniform":
+            num_collect_outputTensor_segments = 10
+            num_noise_iters = [num_total_iter // num_collect_outputTensor_segments] * num_collect_outputTensor_segments
+        elif sampling_type == "2-anchor":
+            num_collect_outputTensor_segments = 2
+            num_noise_iters = [num_total_iter // num_collect_outputTensor_segments] * num_collect_outputTensor_segments
+        elif sampling_type == "1-anchor":
+            num_collect_outputTensor_segments = 1
+            num_noise_iters = [num_total_iter // num_collect_outputTensor_segments] * num_collect_outputTensor_segments
+        elif sampling_type == "hybrid":
+            num_collect_outputTensor_segments = 10
+            num_noise_iters = [0.7 * num_total_iter // num_collect_outputTensor_segments] * num_collect_outputTensor_segments
+            num_noise_iters[0] = num_total_iter - sum(num_noise_iters[1:])
+            num_noise_iters = list(map(int, num_noise_iters))
+        else:
+            raise ValueError(f"Unsupported sampling_type {sampling_type} in collect_outputTensor")
+        
+        if not all(elem >= 0 for elem in num_noise_iters) or sum(num_noise_iters) <= 0:
+            raise ValueError("num_noise_iters must be non-negative and sum to positive value")
+        
+        for i in range(num_collect_outputTensor_segments):
+            num_t = i / num_collect_outputTensor_segments * (1 - eps) + eps
+            t = torch.ones(target.shape[0], device=target.device) * num_t
+            t_expand = t.view(-1, 1, 1).repeat(1, target.shape[1], target.shape[2])
+            
+            for _ in range(num_noise_iters[i]):
+                a0 = torch.randn(trajectory.shape, device=trajectory.device)
+                xt = t_expand * target + (1.-t_expand) * a0
+                #apply mask
+                xt[condition_mask] = cond_data[condition_mask]
+                pred = self.model(xt, t*99, cond=local_cond, global_cond=global_cond)
+                
+                if not isinstance(pred, bool):
+                    raise ValueError("idx_save_h1 != idx_save_h2 in collect_outputTensor")
+            
+        return self.model.idx_save_h1

@@ -1,0 +1,5 @@
+P_S1: 97.83713221549988
+P_S2: 99.5586097240448
+num_param: 108930332
+test_mean_score: 0.9200
+inference_fps: 14.5431

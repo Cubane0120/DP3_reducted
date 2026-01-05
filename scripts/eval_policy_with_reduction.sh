@@ -6,24 +6,17 @@
 DEBUG=False
 
 alg_name=${1}
-task_name=${2}
-config_name=${alg_name}
-addition_info=${3}
-seed=${4}
+exp_type=${2}
+task_name=${3}
+config_name=${alg_name}_${exp_type}
+addition_info=${4}
+seed=${5}
 exp_name=${task_name}-${alg_name}-${addition_info}
 run_dir="data/outputs/${exp_name}_seed${seed}"
 
-gpu_id=${5}
-threshold=${6}
-whitening=${7}
 
-if [[ "$whitening" == "true" ]]; then
-    basis_directory="basis/threshold_${threshold}_whitening"
-else
-    basis_directory="basis/threshold_${threshold}"
-fi
-
-#threshold="0.99" 
+# gpu_id=$(bash scripts/find_gpu.sh)
+gpu_id=${6}
 
 cd 3D-Diffusion-Policy
 
@@ -39,7 +32,5 @@ python eval_with_reduction.py --config-name=${config_name}.yaml \
                             exp_name=${exp_name} \
                             logging.mode=${wandb_mode} \
                             checkpoint.save_ckpt=${save_ckpt} \
-                            policy_reducted.path_basis_h1=${run_dir}/${basis_directory}/latent_h1.npy \
-                            policy_reducted.path_basis_h2=${run_dir}/${basis_directory}/latent_h2.npy \
-                            threshold=${threshold} \
-                            +whitening=${whitening} \
+                            policy_reducted.path_basis=${run_dir}/basis \
+                            sub_logging_dir_name=${exp_type} \

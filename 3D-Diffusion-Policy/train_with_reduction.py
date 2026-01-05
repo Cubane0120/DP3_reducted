@@ -40,10 +40,6 @@ class TrainDP3Workspace:
 
     def __init__(self, cfg: OmegaConf, output_dir=None):
         self.cfg = cfg
-        if cfg.threshold == None:
-            raise NotImplementedError("cfg.threshold must be defined")
-        else:
-            print("threshold = ", cfg.threshold)
         self._output_dir = output_dir
         self._saving_thread = None
         
@@ -78,11 +74,11 @@ class TrainDP3Workspace:
         cfg = copy.deepcopy(self.cfg)
         
         if cfg.training_reducted.debug:
-            cfg.training_reducted.num_epochs = 5
-            cfg.training_reducted.max_train_steps = 5
-            cfg.training_reducted.max_val_steps = 3
-            cfg.training_reducted.rollout_every = 5
-            cfg.training_reducted.checkpoint_every = 5
+            cfg.training_reducted.num_epochs = 3
+            cfg.training_reducted.max_train_steps = 3
+            cfg.training_reducted.max_val_steps = 1
+            cfg.training_reducted.rollout_every = 3
+            cfg.training_reducted.checkpoint_every = 3
             cfg.training_reducted.val_every = 1
             cfg.training_reducted.sample_every = 1
             RUN_ROLLOUT = True
@@ -107,9 +103,9 @@ class TrainDP3Workspace:
 
                 flag = True
 
-        if not cfg.policy_reducted.using_baseline:
+        if not flag:
             # training from unreducted model
-            if not flag:
+            if cfg.policy_reducted.using_projection:
                 # origin_ckpt_path = self.get_checkpoint_path(reducted=False, tag='latest')
                 origin_ckpt_path = self.get_checkpoint_path(reducted=False, tag=cfg.training_reducted.load_origin_checkpoint_type)
                 if origin_ckpt_path.is_file():
@@ -120,7 +116,8 @@ class TrainDP3Workspace:
                     raise FileNotFoundError(
                         f"Checkpoint {origin_ckpt_path} not found. "
                         "Please run training first to create a checkpoint of non-reducted ver.")
-
+            else:
+                raise ValueError("When training with reduction, using_projection must be True")
 
         # configure dataset
         dataset: BaseDataset
@@ -174,13 +171,10 @@ class TrainDP3Workspace:
         cprint("-----------------------------", "yellow")
         # configure logging
         
-        wandb_dir_name_str = f"reducted_threshold={self.cfg.threshold}"
-        if self.cfg.policy_reducted.using_baseline:
-            wandb_dir_name_str = wandb_dir_name_str + "_baseline"
-        elif self.cfg.whitening:
-            wandb_dir_name_str = wandb_dir_name_str + "_whitening"
-
-        wandb_dir = pathlib.Path(self.output_dir) / wandb_dir_name_str
+        if cfg.sub_logging_dir_name is not None:
+            wandb_dir = pathlib.Path(self.output_dir) / str(cfg.sub_logging_dir_name)
+        else:
+            wandb_dir = pathlib.Path(self.output_dir)
         wandb_dir.mkdir(parents=True, exist_ok=True)
         wandb_run = wandb.init(
             dir=str(wandb_dir),
@@ -375,10 +369,10 @@ class TrainDP3Workspace:
         cfg = copy.deepcopy(self.cfg)
         
         # lastest_ckpt_path = self.get_checkpoint_path(reducted=True, tag="latest")
-        lastest_ckpt_path = self.get_checkpoint_path(reducted=True, tag=cfg.training_reducted.load_eval_checkpoint_type)
-        if lastest_ckpt_path.is_file():
-            cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
-            self.load_checkpoint(path=lastest_ckpt_path)
+        ckpt_path = self.get_checkpoint_path(reducted=True, tag=cfg.training_reducted.load_eval_checkpoint_type)
+        if ckpt_path.is_file():
+            cprint(f"Resuming from checkpoint {ckpt_path}", 'magenta')
+            self.load_checkpoint(path=ckpt_path)
         
         # configure env
         env_runner: BaseRunner
@@ -391,7 +385,6 @@ class TrainDP3Workspace:
             policy = self.ema_model
         policy.eval()
         policy.cuda()
-
         runner_log = env_runner.run(policy)
         
       
@@ -499,6 +492,7 @@ class TrainDP3Workspace:
             path = self.get_checkpoint_path(tag=tag)
         else:
             path = pathlib.Path(path)
+        print(f"Loading checkpoint from {str(path)}")
         payload = torch.load(path.open('rb'), pickle_module=dill, map_location='cpu')
         self.load_payload(payload, 
             exclude_keys=exclude_keys, 
@@ -514,8 +508,6 @@ class TrainDP3Workspace:
                 filtered_sd = OrderedDict(
                     (k, v) for k, v in ckpt_sd.items()
                     if ('up_modules' not in k) and ('final_conv' not in k) and ('mid_module' not in k)
-                    # if ('up_modules' not in k) and ('final_conv' not in k)
-                    #ver 2
                 )
 
                 self.model.load_state_dict(filtered_sd, strict=False, **kwargs)
@@ -527,6 +519,7 @@ class TrainDP3Workspace:
             path = self.get_checkpoint_path(tag=tag)
         else:
             path = pathlib.Path(path)
+        print(f"Loading checkpoint from {str(path)}")
         payload = torch.load(path.open('rb'), pickle_module=dill, map_location='cpu')
         self.load_payload_partially(payload)
 
@@ -603,13 +596,7 @@ class TrainDP3Workspace:
         print(f"inference_fps: {fps:.4f}")
         
     def checkpoints_name(self):
-        checkpoints_name_str = f"checkpoints_reducted_threshold={self.cfg.threshold}"
-        
-        if self.cfg.policy_reducted.using_baseline:
-            checkpoints_name_str = checkpoints_name_str + "_baseline"
-        elif self.cfg.whitening:
-            checkpoints_name_str = checkpoints_name_str + "_whitening"
-            
+        checkpoints_name_str = f"checkpoints_{self.cfg.sub_logging_dir_name}"
 
         return checkpoints_name_str
         

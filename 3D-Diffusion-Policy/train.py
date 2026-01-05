@@ -72,12 +72,13 @@ class TrainDP3Workspace:
     def run(self):
         cfg = copy.deepcopy(self.cfg)
         
+        
         if cfg.training.debug:
-            cfg.training.num_epochs = 5
-            cfg.training.max_train_steps = 5
-            cfg.training.max_val_steps = 3
-            cfg.training.rollout_every = 5
-            cfg.training.checkpoint_every = 5
+            cfg.training.num_epochs = 3
+            cfg.training.max_train_steps = 3
+            cfg.training.max_val_steps = 1
+            cfg.training.rollout_every = 3
+            cfg.training.checkpoint_every = 3
             cfg.training.val_every = 1
             cfg.training.sample_every = 1
             RUN_ROLLOUT = True
@@ -148,7 +149,11 @@ class TrainDP3Workspace:
         cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
         cprint("-----------------------------", "yellow")
         # configure logging
-        wandb_dir = pathlib.Path(self.output_dir) / "origin"
+        
+        if cfg.sub_logging_dir_name is not None:
+            wandb_dir = pathlib.Path(self.output_dir) / str(cfg.sub_logging_dir_name)
+        else:
+            wandb_dir = pathlib.Path(self.output_dir)
         wandb_dir.mkdir(parents=True, exist_ok=True)
         wandb_run = wandb.init(
             dir=str(wandb_dir),
@@ -462,6 +467,7 @@ class TrainDP3Workspace:
             path = self.get_checkpoint_path(tag=tag)
         else:
             path = pathlib.Path(path)
+        print(f"Loading checkpoint from {str(path)}")
         payload = torch.load(path.open('rb'), pickle_module=dill, map_location='cpu')
         self.load_payload(payload, 
             exclude_keys=exclude_keys, 
@@ -524,8 +530,8 @@ class TrainDP3Workspace:
                 for batch_idx, batch in enumerate(tepoch):
                     # device transfer
                     batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                    _, _ = self.model.compute_loss(batch)
-                    
+                    n_idx = self.model.collect_outputTensor(batch, cfg.policy.sampling_type)
+                    cprint(f"num of cummulated tensors: {n_idx}", "cyan")
                     if (cfg.training.max_train_steps is not None) \
                         and batch_idx >= (cfg.training.max_train_steps-1):
                         break

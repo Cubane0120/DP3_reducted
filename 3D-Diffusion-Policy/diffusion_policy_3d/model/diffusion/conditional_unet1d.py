@@ -12,19 +12,7 @@ from diffusion_policy_3d.model.diffusion.positional_embedding import SinusoidalP
 from diffusion_policy_3d.common.model_util import print_params
 import numpy as np
 import os
-
-# from mamba_ssm.modules.mamba_simple import Mamba
-# try:
-#     from diffusion_policy_3d.model.diffusion.hydra_ssm import Hydra
-# except ImportError:
-#     Hydra = None
-
-# try:
-#     from mamba_ssm.modules.mamba2 import Mamba2
-# except ImportError:
-#     Mamba2 = None
-# # from mamba_ssm.ops.triton.layernorm import RMSNorm
-from timm.models.layers import DropPath
+import pathlib
 
 logger = logging.getLogger(__name__)
 
@@ -54,55 +42,6 @@ class CrossAttention(nn.Module):
         
         return attn_output
 
-class Attention(nn.Module):
-
-    def __init__(
-            self,
-            dim,
-            num_heads=8,
-            qkv_bias=False,
-            qk_norm=False,
-            attn_drop=0.,
-            proj_drop=0.,
-            norm_layer=nn.LayerNorm,
-    ):
-        super().__init__()
-        assert dim % num_heads == 0
-        self.num_heads = num_heads
-        self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
-        self.fused_attn = True
-
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
-        self.k_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
-        self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
-        self.proj_drop = nn.Dropout(proj_drop)
-
-    def forward(self, x):
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv.unbind(0)
-        q, k = self.q_norm(q), self.k_norm(k)
-
-        if self.fused_attn:
-            x = F.scaled_dot_product_attention(
-             q, k, v,
-                dropout_p=self.attn_drop.p,
-            )
-        else:
-            q = q * self.scale
-            attn = q @ k.transpose(-2, -1)
-            attn = attn.softmax(dim=-1)
-            attn = self.attn_drop(attn)
-            x = attn @ v
-
-        x = x.transpose(1, 2).reshape(B, N, C)
-        x = self.proj(x)
-        x = self.proj_drop(x)
-        return x 
-
 
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
@@ -122,97 +61,6 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
-class MambaVisionBlock(nn.Module):
-    def __init__(self, 
-                 dim, 
-                 mlp_ratio=4., 
-                 drop=0., 
-                 drop_path=0.2, 
-                 act_layer=nn.GELU, 
-                 norm_layer=nn.LayerNorm, 
-                 Mlp_block=Mlp,
-                 layer_scale=None,
-                 mamba_type='v1',  ## ['v1', 'v2', 'bi', 'hydra']
-                 ):
-        super().__init__()
-
-        #cprint(f'Using Mamba {mamba_type} version', 'yellow')
-        self.norm1 = norm_layer(dim)
-        if mamba_type == 'v1':
-            self.mixer = Mamba(d_model=dim)
-        # elif mamba_type == 'v2':
-        #     self.mixer = Mamba2(d_model=dim, headdim=32)
-        # elif mamba_type == 'bi':
-        #     self.mixer = Mamba(d_model=dim, bimamba=True)
-        # elif mamba_type == 'hydra':
-        #     self.mixer = Hydra(d_model=dim)
-        else:
-            NotImplementedError(f"mamba_type {mamba_type} not implemented")
-                 
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-        self.norm2 = norm_layer(dim)
-        mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp_block(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
-        use_layer_scale = layer_scale is not None and type(layer_scale) in [int, float]
-        self.gamma_1 = nn.Parameter(layer_scale * torch.ones(dim))  if use_layer_scale else 1
-        self.gamma_2 = nn.Parameter(layer_scale * torch.ones(dim))  if use_layer_scale else 1
-
-    def forward(self, x):
-        '''
-        x : [ batch_size x in_channels x horizon ]
-        '''
-        x = x.permute(0, 2, 1)
-        x = x + self.drop_path(self.gamma_1 * self.mixer(self.norm1(x)))
-        x = x + self.drop_path(self.gamma_2 * self.mlp(self.norm2(x)))
-        x = x.permute(0, 2, 1)
-
-        return x
-
-class AttnVisionBlock(nn.Module):
-    def __init__(self, 
-                 dim, 
-                 num_heads=8,
-                 qkv_bias=False, 
-                 qk_scale=False, 
-                 attn_drop=0.,
-                 mlp_ratio=4., 
-                 drop=0., 
-                 drop_path=0.2, 
-                 act_layer=nn.GELU, 
-                 norm_layer=nn.LayerNorm, 
-                 Mlp_block=Mlp,
-                 layer_scale=None,
-                 ):
-        super().__init__()
-        self.norm1 = norm_layer(dim)
-        self.mixer = Attention(
-                        dim,
-                        num_heads=num_heads,
-                        qkv_bias=qkv_bias,
-                        qk_norm=qk_scale,
-                        attn_drop=attn_drop,
-                        proj_drop=drop,
-                        norm_layer=norm_layer,
-                    )
-                 
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-        self.norm2 = norm_layer(dim)
-        mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp_block(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
-        use_layer_scale = layer_scale is not None and type(layer_scale) in [int, float]
-        self.gamma_1 = nn.Parameter(layer_scale * torch.ones(dim))  if use_layer_scale else 1
-        self.gamma_2 = nn.Parameter(layer_scale * torch.ones(dim))  if use_layer_scale else 1
-
-    def forward(self, x):
-        '''
-        x : [ batch_size x in_channels x horizon ]
-        '''
-        x = x.permute(0, 2, 1)
-        x = x + self.drop_path(self.gamma_1 * self.mixer(self.norm1(x)))
-        x = x + self.drop_path(self.gamma_2 * self.mlp(self.norm2(x)))
-        x = x.permute(0, 2, 1)
-
-        return x
 
 class ConditionalResidualBlock1D(nn.Module):
 
@@ -318,133 +166,118 @@ class ConditionalResidualBlock1D(nn.Module):
         out = out + self.residual_conv(x)
         return out
 
-
-class ConditionalMambaResidualBlock1D(nn.Module):
-    mamba_version='mambavision_v1'
-
+    
+    
+class ProjectionModule(nn.Module):
     def __init__(self,
-                 in_channels,
-                 out_channels,
-                 cond_dim,
-                 kernel_size=3,
-                 n_groups=8,
-                 condition_type='film',
-                 ):
+        in_channels,
+        out_channels,
+        using_SVD_init=False,
+        path_basis=None,
+        is_trainable=False,
+        is_trainable_partially=False,
+        grad_scale=1e-2,
+        alpha=0.1,
+        ):
         super().__init__()
-        mamba_version = self.mamba_version
-
-        if 'mambavision' in mamba_version:
-            if 'v1' in mamba_version:
-                mamba_type = 'v1'
-            elif 'v2' in mamba_version:
-                mamba_type = 'v2'
-            elif 'bi' in mamba_version:
-                mamba_type = 'bi'
-            elif 'hydra' in mamba_version:
-                mamba_type = 'hydra'
-            else:
-                NotImplementedError(f"mamba_version {mamba_version} not implemented")
-            self.blocks = nn.ModuleList([
-                Conv1dBlock(in_channels,
-                            out_channels,
-                            kernel_size,
-                            n_groups=n_groups),
-                MambaVisionBlock(out_channels, mamba_type=mamba_type),
-                AttnVisionBlock(out_channels,),
-            ])
+        
+        self.projector = nn.Conv1d(
+            in_channels=in_channels, 
+            out_channels=out_channels,
+            kernel_size=1,
+            bias=False
+        )
+        if is_trainable and is_trainable_partially:
+            raise ValueError("Both is_trainable and is_trainable_partially can't be True")
+        
+        self.is_trainable_partially = is_trainable_partially
+        self.is_trainable = is_trainable
+        
+        if using_SVD_init:
+            if not os.path.isfile(path_basis):
+                raise FileNotFoundError(f"{path_basis} not found")
+            
+            projection_SVD_np = np.load(path_basis)
+            projection_SVD_np_k = projection_SVD_np[:, :out_channels]
+            projection_SVD_t  = torch.from_numpy(projection_SVD_np_k).to(self.projector.weight.dtype)
+            w = projection_SVD_t.t().unsqueeze(-1).contiguous()
+            if w.shape != self.projector.weight.shape:
+                raise ValueError(f"SVD shape mismatch: got {tuple(w.shape)}, "
+                                 f"expected {tuple(self.projector.weight.shape)}")
+            
+            with torch.no_grad():
+                self.projector.weight.copy_(w)
         else:
-            raise NotImplementedError(f"mamba_version {mamba_version} not implemented")
-        
-        self.mamba_version = mamba_version
-        
-        self.condition_type = condition_type
+            if not is_trainable:
+                raise ValueError(f"freezing projection module without initial parameters")
 
-        cond_channels = out_channels
-        if condition_type == 'film': # FiLM modulation https://arxiv.org/abs/1709.07871
-            # predicts per-channel scale and bias
-            cond_channels = out_channels * 2
-            self.cond_encoder = nn.Sequential(
-                nn.Mish(),
-                nn.Linear(cond_dim, cond_channels),
-                Rearrange('batch t -> batch t 1'),
-            )
-        elif condition_type == 'add':
-            self.cond_encoder = nn.Sequential(
-                nn.Mish(),
-                nn.Linear(cond_dim, out_channels),
-                Rearrange('batch t -> batch t 1'),
-            )
-        elif condition_type == 'cross_attention_add':
-            self.cond_encoder = CrossAttention(in_channels, cond_dim, out_channels)
-        elif condition_type == 'cross_attention_film':
-            cond_channels = out_channels * 2
-            self.cond_encoder = CrossAttention(in_channels, cond_dim, cond_channels)
-        elif condition_type == 'mlp_film':
-            cond_channels = out_channels * 2
-            self.cond_encoder = nn.Sequential(
-                nn.Mish(),
-                nn.Linear(cond_dim, cond_dim),
-                nn.Mish(),
-                nn.Linear(cond_dim, cond_channels),
-                Rearrange('batch t -> batch t 1'),
+        if is_trainable_partially:
+            self.delta = nn.Parameter(torch.zeros_like(self.projector.weight))
+            self.alpha = float(alpha)
+
+            if grad_scale != 1.0:
+                self.delta.register_hook(lambda g: g * grad_scale)
+            self.register_buffer("W0_base", self.projector.weight.detach().clone(), persistent=True)
+        else:
+            self.delta = None
+            self.register_buffer("W0_base", None, persistent=False)
+        
+        if not is_trainable:
+            self.projector.weight.requires_grad_(False)
+            if is_trainable_partially:
+                print(f"projection module C : {in_channels} -> {out_channels} is trainable partially")
+            else:
+                print(f"projection module C : {in_channels} -> {out_channels} is frozen")
+        else:
+            print(f"projection module C : {in_channels} -> {out_channels} is trainable")
+
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if mode and self.is_trainable_partially:
+            with torch.no_grad():
+                self.projector.weight.copy_(self.W0_base)
+                
+        if not mode and self.is_trainable_partially:
+            with torch.no_grad():
+                fused = self.W0_base * (1.0 + self.alpha * torch.tanh(self.delta))
+                self.projector.weight.copy_(fused)
+        return self
+
+    def forward(self, x):
+        if not self.training:
+            return self.projector(x)
+        
+        if self.is_trainable_partially:
+            W  = self.W0_base * (1.0 + self.alpha * torch.tanh(self.delta))
+            
+            return F.conv1d(
+                x, W, bias=None,
+                stride=self.projector.stride,
+                padding=self.projector.padding,
+                dilation=self.projector.dilation,
+                groups=self.projector.groups,
             )
         else:
-            raise NotImplementedError(f"condition_type {condition_type} not implemented")
-        
-        self.out_channels = out_channels
-        # make sure dimensions compatible
-        self.residual_conv = nn.Conv1d(in_channels, out_channels, 1) \
-            if in_channels != out_channels else nn.Identity()
+            return self.projector(x)
 
-    def forward(self, x, cond=None, time_cond=None):
-        '''
-            x : [ batch_size x in_channels x horizon ]
-            cond : [ batch_size x cond_dim]
+def Select_dimension_with_PercentVariance(path, percentVar, n):
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"{path} not found")
+    
+    normalized_singular_values = np.load(path)
+    cumulative_variance = np.cumsum(normalized_singular_values)
+    dim = np.searchsorted(cumulative_variance, percentVar)
+    dim = int(np.ceil(dim / n) * n)
+    return dim
 
-            returns:
-            out : [ batch_size x out_channels x horizon ]
-        '''
-
-        out = self.blocks[0](x)  
-        
-        if cond is not None:      
-            if self.condition_type == 'film':
-                embed = self.cond_encoder(cond)
-                embed = embed.reshape(embed.shape[0], 2, self.out_channels, 1)
-                scale = embed[:, 0, ...]
-                bias = embed[:, 1, ...]
-                out = scale * out + bias
-            elif self.condition_type == 'add':
-                embed = self.cond_encoder(cond)
-                out = out + embed
-            elif self.condition_type == 'cross_attention_add':
-                embed = self.cond_encoder(x.permute(0, 2, 1), cond)
-                embed = embed.permute(0, 2, 1) # [batch_size, out_channels, horizon]
-                out = out + embed
-            elif self.condition_type == 'cross_attention_film':
-                embed = self.cond_encoder(x.permute(0, 2, 1), cond)
-                embed = embed.permute(0, 2, 1)
-                embed = embed.reshape(embed.shape[0], 2, self.out_channels, -1)
-                scale = embed[:, 0, ...]
-                bias = embed[:, 1, ...]
-                out = scale * out + bias
-            elif self.condition_type == 'mlp_film':
-                embed = self.cond_encoder(cond)
-                embed = embed.reshape(embed.shape[0], 2, self.out_channels, -1)
-                scale = embed[:, 0, ...]
-                bias = embed[:, 1, ...]
-                out = scale * out + bias
-            else:
-                raise NotImplementedError(f"condition_type {self.condition_type} not implemented")
-        
-        out = self.blocks[1](out)
-
-        if self.mamba_version == 'mambavision':
-            out = self.blocks[2](out)
-
-        out = out + self.residual_conv(x)
-
-        return out
+def Get_PercentVariance(path, dim):
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"{path} not found")
+    normalized_singular_values = np.load(path)
+    cumulative_variance = np.cumsum(normalized_singular_values)
+    percent_variance = cumulative_variance[dim]
+    return percent_variance*100
 
 class ConditionalUnet1D(nn.Module):
     def __init__(self, 
@@ -459,78 +292,99 @@ class ConditionalUnet1D(nn.Module):
         use_down_condition=True,
         use_mid_condition=True,
         use_up_condition=True,
-        collect_data=False,
-        collect_data_path=None,
-        path_basis_h1=None,
-        path_basis_h2=None,
-        freezing_early_module=True,
-        using_baseline=False,
-        mamba_version=None, #'mambavision_v1',
+        # collecting output Tensor to calculate SVD basis
+        collect_outputTensor=False, #aadsad
+        collect_outputTensor_path=None,
+        sampling_type=None,
+        # projection module condition
+        using_projection=False,
+        percentVar = None,
+        projection_h1_dim = None,
+        projection_h2_dim = None,
+        projection_reduction_rate = 2,
+        
+        # SVD's projection
+        using_projection_SVD_init=False,
+        path_basis=None,
+        
+        freezing_early_module=False,
+        freezing_diffusion_step_encoder=False,
+        pojection_is_trainable=False,
+        pojection_is_trainable_partially=False,
         ):
+        
         super().__init__()
-        if path_basis_h1 is not None:
-            if not os.path.isfile(path_basis_h1):
-                raise FileNotFoundError(f"{path_basis_h1} not found")
-            # reductor_np = np.load(path_basis)
-            # reductor_t = torch.from_numpy(reductor_np)
-            # #self.reductor= self.reductor.float()   
-            # self.register_buffer("reductor", reductor_t) 
-
-            reductor_np = np.load(path_basis_h1)
-            reductor_t  = torch.from_numpy(reductor_np)
-            # Conv1d 모듈 생성
-            self.reductor_h1_conv = nn.Conv1d(
-                in_channels= reductor_t.shape[0], 
-                out_channels=reductor_t.shape[1],
-                kernel_size=1,
-                bias=False
-            )
-            if not using_baseline:
-                with torch.no_grad():
-                    self.reductor_h1_conv.weight.copy_(reductor_t.t().unsqueeze(-1))
-            k_h1 = reductor_t.shape[1]
-            print(f"k_h1: {k_h1}")
-        else:
-            k_h1 = down_dims[1]
-        if path_basis_h2 is not None:
-            if not os.path.isfile(path_basis_h2):
-                raise FileNotFoundError(f"{path_basis_h2} not found")
-            # reductor_np = np.load(path_basis)
-            # reductor_t = torch.from_numpy(reductor_np)
-            # #self.reductor= self.reductor.float()   
-            # self.register_buffer("reductor", reductor_t) 
-
-            reductor_np = np.load(path_basis_h2)
-            reductor_t  = torch.from_numpy(reductor_np)
-            # Conv1d 모듈 생성
-            self.reductor_h2_conv = nn.Conv1d(
-                in_channels= reductor_t.shape[0], 
-                out_channels=reductor_t.shape[1],
-                kernel_size=1,
-                bias=False
-            )
-            if not using_baseline:
-                with torch.no_grad():
-                    self.reductor_h2_conv.weight.copy_(reductor_t.t().unsqueeze(-1))
-            k_h2 = reductor_t.shape[1]
-            print(f"k_h2: {k_h2}")
-        else:
-            k_h2 = down_dims[2]
-
-        self.path_basis_h1 = path_basis_h1
-        self.path_basis_h2 = path_basis_h2
-
+        
         self.condition_type = condition_type
         
         self.use_down_condition = use_down_condition
         self.use_mid_condition = use_mid_condition
         self.use_up_condition = use_up_condition
-        self.collect_data = collect_data
-        if collect_data:
-            self.collect_data_path = collect_data_path
+        
+        
+        self.collect_outputTensor = collect_outputTensor
+        if collect_outputTensor:
+            self.collect_outputTensor_path = collect_outputTensor_path
             self.idx_save_h1 = 0
             self.idx_save_h2 = 0
+        self.using_projection = using_projection
+        
 
+        if sampling_type is not None:
+            sampling_type = str(sampling_type)
+            
+            if sampling_type not in ['uniform', '2-anchor', '1-anchor', 'hybrid']:
+                raise ValueError(f"sampling_type {sampling_type} not supported")
+        else:
+            if self.using_projection:
+                raise ValueError("sampling_type must be specified when using_projection is True")
+        
+        if self.using_projection:
+            if not os.path.isdir(path_basis):
+                raise FileNotFoundError(f"{path_basis} not found")
+            
+            path_basis = pathlib.Path(path_basis)
+            path_basis_h1 = path_basis / (sampling_type + "_V_latent_h1.npy")
+            path_basis_h2 = path_basis / (sampling_type + "_V_latent_h2.npy")
+            
+            path_basis_S1 = path_basis / (sampling_type + "_S_latent_h1.npy")
+            path_basis_S2 = path_basis / (sampling_type + "_S_latent_h2.npy")
+            
+            if percentVar is not None:
+                if not isinstance(percentVar, float) or not (percentVar > 0. and percentVar < 1.):
+                    raise ValueError("Percent variance is not float in (0, 1.)")
+                if (projection_h1_dim is not None) or (projection_h2_dim is not None):
+                    raise ValueError("Using Percent variance reference, but dim is assigned")
+                
+                projection_h1_dim, projection_h2_dim = \
+                    Select_dimension_with_PercentVariance(path_basis_S1, percentVar, n_groups),\
+                    Select_dimension_with_PercentVariance(path_basis_S2, percentVar, n_groups)
+            
+            P_S1, P_S2 = \
+                Get_PercentVariance(path_basis_S1, projection_h1_dim), \
+                Get_PercentVariance(path_basis_S2, projection_h2_dim)
+            print(f"k1: {projection_h1_dim}")
+            print(f"k2: {projection_h2_dim}")
+            print(f"P_S1: {P_S1}")
+            print(f"P_S2: {P_S2}")
+
+            self.projection_h1 = ProjectionModule(
+                in_channels=down_dims[1], 
+                out_channels=projection_h1_dim,
+                using_SVD_init=using_projection_SVD_init,
+                path_basis=path_basis_h1,
+                is_trainable=pojection_is_trainable,
+                is_trainable_partially=pojection_is_trainable_partially,
+            )
+            self.projection_h2 = ProjectionModule(
+                in_channels=down_dims[2], 
+                out_channels=projection_h2_dim,
+                using_SVD_init=using_projection_SVD_init,
+                path_basis=path_basis_h2,
+                is_trainable=pojection_is_trainable,
+                is_trainable_partially=pojection_is_trainable_partially,
+            )
+            
         all_dims = [input_dim] + list(down_dims)
         start_dim = down_dims[0]
 
@@ -564,21 +418,13 @@ class ConditionalUnet1D(nn.Module):
                     condition_type=condition_type)
             ])
         
-        # mid_dim = all_dims[-1]
-        
-        #ver2
-        if self.path_basis_h2 is None:
+        if self.using_projection:
+            mid_dim = projection_h2_dim
+        else:
             mid_dim = all_dims[-1]
-        else:
-            mid_dim = k_h2
+            
         
-        #about mamba or not
-        if mamba_version:
-            UnitBlock = ConditionalMambaResidualBlock1D
-            UnitBlock.mamba_version = mamba_version
-            cprint(f'Using Mamba {mamba_version} version', 'yellow')
-        else:
-            UnitBlock = ConditionalResidualBlock1D
+        UnitBlock = ConditionalResidualBlock1D
 
         self.mid_modules = nn.ModuleList([
             UnitBlock(
@@ -611,7 +457,7 @@ class ConditionalUnet1D(nn.Module):
         up_modules = nn.ModuleList([])
 
         # breakpoint()
-        if path_basis_h1 is None and path_basis_h2 is None:
+        if not self.using_projection:
             out_in = reversed(in_out[1:])
 
             for ind, (dim_in, dim_out) in enumerate(out_in):
@@ -633,19 +479,17 @@ class ConditionalUnet1D(nn.Module):
                 nn.Conv1d(start_dim, input_dim, 1),
             )
         else:
+            up_1_in = 2 * projection_h2_dim
+            up_1_out = (up_1_in//projection_reduction_rate)//n_groups * n_groups
+            
+            up_2_in = projection_h1_dim + up_1_out
+            up_2_out = (up_2_in//projection_reduction_rate)//n_groups * n_groups
+            
             out_in = (
-                [  
-                    2 * k_h2,
-                    k_h2
-                ],
-                [
-                    k_h1 + k_h2,
-                    ( ((k_h1 + k_h2)//2-1)//8 + 1 ) * 8
-                ] 
+                [up_1_in, up_1_out],
+                [up_2_in, up_2_out],
             )
-            # print(out_in)
-            # print(k_h1, k_h2)
-            # breakpoint()
+
             for ind, (dim_in, dim_out) in enumerate(out_in):
                 is_last = ind >= (len(in_out) - 1)
                 up_modules.append(nn.ModuleList([
@@ -680,25 +524,20 @@ class ConditionalUnet1D(nn.Module):
 
         print(f"num_param: {sum(p.numel() for p in self.parameters())}")
 
-        if path_basis_h1 is not None or path_basis_h2 is not None:
-            print(f"[ConditionalUnet1D] using path basis h1: %s", path_basis_h1)
-            print(f"[ConditionalUnet1D] using path basis h2: %s", path_basis_h2)
-            
-            if freezing_early_module:
-                for p in self.parameters():
-                    p.requires_grad = False
+        if self.using_projection:
+            if using_projection_SVD_init:
+                print(f"[ConditionalUnet1D] using path basis h1: %s", path_basis_h1)
+                print(f"[ConditionalUnet1D] using path basis h2: %s", path_basis_h2)
 
-                for p in self.mid_modules.parameters():
-                    p.requires_grad = True
-                for p in self.up_modules.parameters():
-                    p.requires_grad = True
-                for p in self.final_conv.parameters():
-                    p.requires_grad = True
-
-                print(f"freezing model without up_modules and final_conv")
-            else:
-                for p in self.parameters():
-                    p.requires_grad = True
+        
+        if freezing_early_module:
+            for p in self.down_modules.parameters():
+                p.requires_grad = False
+            print(f"freezing down_modules")
+        if freezing_diffusion_step_encoder:
+            for p in self.diffusion_step_encoder.parameters():
+                p.requires_grad = False
+            print(f"freezing diffusion step encoder")
 
     def forward(self, 
             sample: torch.Tensor, 
@@ -757,15 +596,18 @@ class ConditionalUnet1D(nn.Module):
                     x = x + h_local[0]
                 x = resnet2(x)
             
-            if self.path_basis_h1 is not None and idx == 1:
-                x_ = self.reductor_h1_conv(x)
-                h.append(x_)
-            elif self.path_basis_h2 is not None and idx == 2:
-                x = self.reductor_h2_conv(x)
-                h.append(x)
+            if self.using_projection:
+                if idx == 1:
+                    x_ = self.projection_h1(x)
+                    h.append(x_)
+                elif idx == 2:
+                    x = self.projection_h2(x)
+                    h.append(x)
+                else:
+                    h.append(x)
             else:
                 h.append(x)
-            if self.collect_data and idx!=0:
+            if self.collect_outputTensor and idx!=0:
                 # breakpoint()
                 # save bottleneck_out
                 latent = x.detach().cpu().numpy()  # (1,1024,8)/(1,2048,4)
@@ -774,22 +616,25 @@ class ConditionalUnet1D(nn.Module):
                 #latent = latent.squeeze(0)
                 
                 #np.save(f"/home/hsh/3D-Diffusion-Policy/data_bottleneck_out/latent_sample_{self.idx_save}.npy", latent)
-                if self.collect_data_path is None:
+                if self.collect_outputTensor_path is None:
                     raise ValueError("collect_data_path must be specified when collect_data is True")
-                if not os.path.exists(self.collect_data_path):
-                    os.makedirs(self.collect_data_path)
+                if not os.path.exists(self.collect_outputTensor_path):
+                    os.makedirs(self.collect_outputTensor_path)
                 
                 if idx == 1:
-                    np.save(f"{self.collect_data_path}/latent_h1_{self.idx_save_h1}.npy", latent)
+                    np.save(f"{self.collect_outputTensor_path}/latent_h1_{self.idx_save_h1}.npy", latent)
                     self.idx_save_h1+=1
                 elif idx == 2:
-                    np.save(f"{self.collect_data_path}/latent_h2_{self.idx_save_h2}.npy", latent)
+                    np.save(f"{self.collect_outputTensor_path}/latent_h2_{self.idx_save_h2}.npy", latent)
                     self.idx_save_h2+=1
                 else:
                     raise ValueError(f"idx {idx} in down_modules is not supported for collect_data")
             x = downsample(x)
             # breakpoint()
 
+        if self.collect_outputTensor:
+            return (self.idx_save_h1 == self.idx_save_h2)
+        
         # breakpoint()
         for mid_module in self.mid_modules:
             if self.use_mid_condition:
@@ -799,16 +644,6 @@ class ConditionalUnet1D(nn.Module):
             
 
         for idx, (resnet, resnet2, upsample) in enumerate(self.up_modules):
-            # if self.path_basis_h2 is not None and idx == 0:
-            #     h_reducted = self.reductor_h2_conv(h.pop())
-            #     x = torch.cat((x, h_reducted), dim=1)
-            # elif self.path_basis_h1 is not None and idx == 1:
-            #     h_reducted = self.reductor_h1_conv(h.pop())
-            #     x = torch.cat((x, h_reducted), dim=1)
-            # else:
-            #     x = torch.cat((x, h.pop()), dim=1)
-
-            #ver 2
             x = torch.cat((x, h.pop()), dim=1)
 
             if self.use_up_condition: 

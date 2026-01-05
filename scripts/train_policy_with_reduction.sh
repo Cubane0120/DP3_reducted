@@ -1,8 +1,5 @@
 # Examples:
-# bash scripts/train_policy.sh dp3 adroit_hammer 0322 0 0
-# bash scripts/train_policy.sh dp3 dexart_laptop 0322 0 0
-# bash scripts/train_policy.sh simple_dp3 adroit_hammer 0322 0 0
-# bash scripts/train_policy.sh dp3 metaworld_basketball 0602 0 0
+# bash scripts/train_policy.sh dp3 origin metaworld_basketball 0602 0 0
 
 
 
@@ -10,29 +7,19 @@ DEBUG=False
 save_ckpt=True
 
 alg_name=${1}
-task_name=${2}
-config_name=${alg_name}
-addition_info=${3}
-seed=${4}
+exp_type=${2}
+task_name=${3}
+config_name=${alg_name}_${exp_type}
+addition_info=${4}
+seed=${5}
 exp_name=${task_name}-${alg_name}-${addition_info}
 run_dir="data/outputs/${exp_name}_seed${seed}"
 
 
 # gpu_id=$(bash scripts/find_gpu.sh)
-gpu_id=${5}
+gpu_id=${6}
 echo -e "\033[33mgpu id (to use): ${gpu_id}\033[0m"
 
-threshold=${6}
-whitening=${7}
-
-if [[ "$whitening" == "true" ]]; then
-    basis_directory="basis/threshold_${threshold}_whitening"
-else
-    basis_directory="basis/threshold_${threshold}"
-fi
-
-#threshold="0.99" 
-#0.995
 
 
 if [ $DEBUG = True ]; then
@@ -60,9 +47,7 @@ python train_with_reduction.py --config-name=${config_name}.yaml \
                             training_reducted.device="cuda:0" \
                             exp_name=${exp_name} \
                             logging.mode=${wandb_mode} \
-                            logging.name=${exp_name}_${seed}_reducted_threshold_${threshold} \
+                            logging.name=${exp_name}_${exp_type}_${seed} \
                             checkpoint.save_ckpt=${save_ckpt} \
-                            policy_reducted.path_basis_h1=${run_dir}/${basis_directory}/latent_h1.npy \
-                            policy_reducted.path_basis_h2=${run_dir}/${basis_directory}/latent_h2.npy \
-                            threshold=${threshold} \
-                            +whitening=${whitening} \
+                            policy_reducted.path_basis=${run_dir}/basis \
+                            sub_logging_dir_name=${exp_type} \

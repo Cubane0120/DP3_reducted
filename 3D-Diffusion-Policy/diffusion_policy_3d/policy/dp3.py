@@ -41,15 +41,23 @@ class DP3(BasePolicy):
             pointnet_type="pointnet",
             pointcloud_encoder_cfg=None,
             # parameters passed to step
-            collect_data=False,
-            collect_data_path=None,
-            path_basis_h1=None,
-            path_basis_h2=None,
-            freezing_early_module=True,
-            using_baseline=False,
+            collect_outputTensor=False,
+            collect_outputTensor_path=None,
+            sampling_type=None,
+            using_projection=False,
+            percentVar = None,
+            projection_h1_dim=None,
+            projection_h2_dim=None,
+            projection_reduction_rate=4,
+            using_projection_SVD_init=False,
+            path_basis=None,
+            freezing_early_module=False,
+            freezing_obs_encoder=False,
+            freezing_diffusion_step_encoder=False,
+            pojection_is_trainable=False,
+            pojection_is_trainable_partially=False,
             **kwargs):
         super().__init__()
-
         self.condition_type = condition_type
 
         # parse shape_meta
@@ -105,18 +113,28 @@ class DP3(BasePolicy):
             use_down_condition=use_down_condition,
             use_mid_condition=use_mid_condition,
             use_up_condition=use_up_condition,
-            collect_data=collect_data,
-            collect_data_path=collect_data_path,
-            path_basis_h1=path_basis_h1,
-            path_basis_h2=path_basis_h2,
+            collect_outputTensor=collect_outputTensor,
+            collect_outputTensor_path=collect_outputTensor_path,
+            sampling_type=sampling_type,
+            using_projection=using_projection,
+            projection_h1_dim = projection_h1_dim,
+            projection_h2_dim = projection_h2_dim,
+            projection_reduction_rate = projection_reduction_rate,
+            using_projection_SVD_init=using_projection_SVD_init,
+            path_basis=path_basis,
             freezing_early_module=freezing_early_module,
-            using_baseline=using_baseline,
+            freezing_diffusion_step_encoder=freezing_diffusion_step_encoder,
+            pojection_is_trainable=pojection_is_trainable,
+            pojection_is_trainable_partially=pojection_is_trainable_partially,
         )
-
         self.obs_encoder = obs_encoder
         self.model = model
         self.noise_scheduler = noise_scheduler
         
+        if freezing_obs_encoder:
+            for p in self.obs_encoder.parameters():
+                p.requires_grad = False
+            print(f"freezing obs encoder")
         
         self.noise_scheduler_pc = copy.deepcopy(noise_scheduler)
         self.mask_generator = LowdimMaskGenerator(
@@ -385,3 +403,88 @@ class DP3(BasePolicy):
         
         return loss, loss_dict
 
+    def collect_outputTensor(self, batch, sampling_type, num_total_iter=100):
+        scheduler = self.noise_scheduler
+        # normalize input
+        nobs = self.normalizer.normalize(batch['obs'])
+        nactions = self.normalizer['action'].normalize(batch['action'])
+
+        if not self.use_pc_color:
+            nobs['point_cloud'] = nobs['point_cloud'][..., :3]
+        
+        batch_size = nactions.shape[0]
+        horizon = nactions.shape[1]
+
+        # handle different ways of passing observation
+        local_cond = None
+        global_cond = None
+        trajectory = nactions
+        cond_data = trajectory
+        
+        if self.obs_as_global_cond:
+            # reshape B, T, ... to B*T
+            this_nobs = dict_apply(nobs, 
+                lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
+            nobs_features = self.obs_encoder(this_nobs)
+
+            if "cross_attention" in self.condition_type:
+                # treat as a sequence
+                global_cond = nobs_features.reshape(batch_size, self.n_obs_steps, -1)
+            else:
+                # reshape back to B, Do
+                global_cond = nobs_features.reshape(batch_size, -1)
+            # this_n_point_cloud = this_nobs['imagin_robot'].reshape(batch_size,-1, *this_nobs['imagin_robot'].shape[1:])
+            this_n_point_cloud = this_nobs['point_cloud'].reshape(batch_size,-1, *this_nobs['point_cloud'].shape[1:])
+            this_n_point_cloud = this_n_point_cloud[..., :3]
+        else:
+            # reshape B, T, ... to B*T
+            this_nobs = dict_apply(nobs, lambda x: x.reshape(-1, *x.shape[2:]))
+            nobs_features = self.obs_encoder(this_nobs)
+            # reshape back to B, T, Do
+            nobs_features = nobs_features.reshape(batch_size, horizon, -1)
+            cond_data = torch.cat([nactions, nobs_features], dim=-1)
+            trajectory = cond_data.detach()
+
+
+        # generate impainting mask
+        condition_mask = self.mask_generator(trajectory.shape)
+        if sampling_type is None:
+            raise ValueError("sampling_type must be specified in collect_outputTensor")
+        elif sampling_type == "uniform":
+            num_collect_outputTensor_segmnets = 10
+            num_noise_iters = num_total_iter // num_collect_outputTensor_segmnets
+        # elif sampling_type == "2-anchor":
+        #     num_collect_outputTensor_segmnets = 2
+        #     num_noise_iters = num_total_iter // num_collect_outputTensor_segmnets
+        # elif sampling_type == "1-anchor":
+        #     num_collect_outputTensor_segmnets = 1
+        #     num_noise_iters = num_total_iter // num_collect_outputTensor_segmnets
+        else:
+            raise ValueError(f"Unsupported sampling_type {sampling_type} in collect_outputTensor")
+        
+        if num_noise_iters < 1:
+            num_noise_iters = 1
+
+
+        scheduler.set_timesteps(num_collect_outputTensor_segmnets)
+        for t in scheduler.timesteps:
+            for _ in range(num_noise_iters):
+                # Sample noise that we'll add to the images
+                noise = torch.randn(trajectory.shape, device=trajectory.device)
+            
+                # Add noise to the clean images according to the noise magnitude at each timestep
+                # (this is the forward diffusion process)
+                noisy_trajectory = self.noise_scheduler.add_noise(
+                    trajectory, noise, t)
+                # apply conditioning
+                noisy_trajectory[condition_mask] = cond_data[condition_mask]
+
+                # Predict the noise residual
+                pred = self.model(sample=noisy_trajectory, 
+                                timestep=t, 
+                                local_cond=local_cond, 
+                                global_cond=global_cond)
+                
+                if not isinstance(pred, bool):
+                    raise ValueError("idx_save_h1 != idx_save_h2 in collect_outputTensor")
+        return self.model.idx_save_h1

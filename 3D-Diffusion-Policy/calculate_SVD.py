@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 # prefix = "latent_h2"
 # prefix = "latent_md"
 prefixes = ["latent_h1", "latent_h2"]#, "latent_md"]
-thresholds = [0.99, 0.95, 0.9]
 
 @hydra.main(
     version_base=None,
@@ -34,8 +33,18 @@ thresholds = [0.99, 0.95, 0.9]
         'diffusion_policy_3d', 'config'))
 )
 def main(cfg):
-    data_path = cfg.policy.collect_data_path
-    
+    data_path = cfg.policy.collect_outputTensor_path
+    save_dir = pathlib.Path(data_path).parent / "basis"
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    sampling_type = cfg.policy.sampling_type
+    if sampling_type is None:
+        raise ValueError("sampling_type must be specified in the config file")
+    else:
+        sampling_type = str(sampling_type)    
+        if sampling_type not in ['uniform', '2-anchor', '1-anchor', 'hybrid']:
+            raise ValueError(f"sampling_type {sampling_type} not supported")
+
     for i_prefix, prefix in enumerate(prefixes):
         print("Processing prefix:", prefix)
         file_paths = sorted(glob.glob(data_path + f"/{prefix}*.npy"))
@@ -45,75 +54,31 @@ def main(cfg):
             print(f"Found {len(file_paths)} files in {data_path}")
 
         all_latents = [np.load(f) for f in file_paths]  # list of (1024, 8) / (2048, 4)
-        # breakpoint()
-        #@ when output tensors from train data(batch not 1)
         all_latents = np.concatenate([np.asarray(b)[None, ...] for row in all_latents for b in row],axis=0)
-        # all_latents = np.stack(all_latents)  # shape: (N, 1024, 8) / (N, 2048, 4)
+
         print(f"Shape of all_latents: {all_latents.shape}")
         dim_out = all_latents.shape[1]  # 1024 or 2048
 
-        # 1) (N, 2048, 4) → (N, 4, 2048)
+        # 1) (N, C, 4) → (N, 4, C)
         all_latents = all_latents.transpose(0, 2, 1)
-        # 2) (N, 4, 2048) → (N*4, 2048)
+        # 2) (N, 4, C) → (N*4, 2048)
         X = all_latents.reshape(-1, dim_out)
         X_gpu = cp.asarray(X)
-        #U, S, VT = np.linalg.svd(X, full_matrices=False)  # S: (min(N, D),)
-        U, S, VT = cp.linalg.svd(X_gpu, full_matrices=False)
+        U, s, VT = cp.linalg.svd(X_gpu, full_matrices=False)
+        S = s**2 / (s**2).sum()  # normalized singular values
+        
+        path = "/SSDa/dongwoo_nam/hsh/DP3_reducted/" + sampling_type + "_" + str(cfg.name) + "_" + prefix + ".csv"
+        s_cpu = cp.asnumpy(s).ravel()   # -> numpy 1D
+        S_cpu = cp.asnumpy(S).ravel()   # -> numpy 1D
+        
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(str(cfg.task_name) + ",")
+            f.write(",".join(map(str, s_cpu)) + "\n")
+        np.save(str(save_dir)+f"/{sampling_type}_S_{prefix}.npy", S_cpu)  # shape: (D)
 
-        print(S.shape)
-        # 4. Plot explained variance ratio
-        # explained_variance_ratio = S**2 / np.sum(S**2)
-        # accumulate_var_ratio = np.cumsum(explained_variance_ratio)
-        # idx_list = []
-        # for threshold in [0.97, 0.98, 0.99, 0.999]:
-        #     idx = np.searchsorted(accumulate_var_ratio, threshold, side='left')
-        #     idx_list.append(idx)
-        # [163, 220, 342, 895]
-
-        # #plt.plot(accumulate_var_ratio, marker='o')
-        # plt.plot(accumulate_var_ratio[:300], marker='o')
-        # plt.xlabel('Number of Components')
-        # plt.ylabel('Cumulative Explained Variance')
-        # plt.title('SVD Component Importance')
-        # plt.grid()
-        # plt.show()
-
-        # 5. Truncate to top-K components
-        #explained_variance_ratio = S**2 / np.sum(S**2)
-        explained_variance_ratio = S**2 / cp.sum(S**2)
-        #accumulate_var_ratio = np.cumsum(explained_variance_ratio)
-        accumulate_var_ratio = cp.cumsum(explained_variance_ratio)
-
-        data_dir = pathlib.Path(data_path).parent / "basis"
-        data_dir.mkdir(parents=True, exist_ok=True)
-        for threshold in thresholds:
-            #k = np.searchsorted(accumulate_var_ratio, threshold, side='left')
-            k_raw = int(cp.searchsorted(accumulate_var_ratio, cp.array([threshold]), side='left')[0])
-            k = ((k_raw-1)//8 +1) * 8
-            #if divide to 2, at upmodules (default=4)
-            if k < 16:
-                k = 16
-            
-            # #if divide to 4, at upmodules (default=4)
-            # if i_prefix == 0:
-            #     if k < 48:
-            #         k=48
-            # elif i_prefix == 1:
-            #     if k < 32:
-            #         k=32
-            
-            logger.info(
-                f"prefixes : {prefix}, threshold : {threshold}\n Number of components to retain {threshold*100}% variance: {k}, raw: {k_raw}"
-            )
-            #{str(threshold)}
-            VT_k = VT[:k, :]              # (k, D)
-            V_k = VT_k.T                  # (D, k) 
-            V_k_cpu = cp.asnumpy(V_k)
-            
-            save_dir = data_dir / f"threshold_{str(threshold)}"
-            save_dir.mkdir(parents=True, exist_ok=True)
-            #np.save(data_path+f"_svd_basis_{prefix}.npy", V_k)  # shape: (D, k)        
-            np.save(str(save_dir)+f"/{prefix}.npy", V_k_cpu)  # shape: (D, k)
+        V = VT.T                  # (D, k) 
+        V_cpu = cp.asnumpy(V)
+        np.save(str(save_dir)+f"/{sampling_type}_V_{prefix}.npy", V_cpu)  # shape: (D, k)
 
 if __name__ == "__main__":
     main()

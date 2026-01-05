@@ -5,14 +5,17 @@
 DEBUG=False
 
 alg_name=${1}
-task_name=${2}
-config_name=${alg_name}
-addition_info=${3}
-seed=${4}
+exp_type=${2}
+task_name=${3}
+config_name=${alg_name}_${exp_type}
+addition_info=${4}
+seed=${5}
 exp_name=${task_name}-${alg_name}-${addition_info}
 run_dir="data/outputs/${exp_name}_seed${seed}"
 
-gpu_id=${5}
+
+gpu_id=${6}
+sampling_type=${7}
 
 cd 3D-Diffusion-Policy
 
@@ -27,5 +30,5 @@ python calculate_SVD.py --config-name=${config_name}.yaml \
                             exp_name=${exp_name} \
                             logging.mode=${wandb_mode} \
                             checkpoint.save_ckpt=${save_ckpt} \
-                            policy.collect_data=True \
-                            policy.collect_data_path="${run_dir}/collect_data"
+                            policy.sampling_type=${sampling_type} \
+                            policy.collect_outputTensor_path="${run_dir}/collect_data" \
