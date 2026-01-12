@@ -80,15 +80,16 @@ SEED=(
 for env in "${ENVS[@]}"; do
     for seed in "${SEED[@]}"; do
         outputs_dir="3D-Diffusion-Policy/data/outputs/${env}-${ALG}-${date}_seed${seed}"
-        rm -rf ${outputs_dir}/basis
-        rm -rf ${outputs_dir}/fixed_A
-        rm -rf ${outputs_dir}/fixed_B
-        rm -rf ${outputs_dir}/calculate*
-        rm -rf ${outputs_dir}/collect_data_for_pca*
-        rm -rf ${outputs_dir}/eval_with_*
-        rm -rf ${outputs_dir}/train_with_*
-        rm -rf ${outputs_dir}/collect_data
-        rm -rf ${outputs_dir}/checkpoints_fixed*
+        # rm -rf ${outputs_dir}/basis
+        # rm -rf ${outputs_dir}/fixed_A
+        # rm -rf ${outputs_dir}/fixed_B
+        # rm -rf ${outputs_dir}/calculate*
+        # rm -rf ${outputs_dir}/collect_data_for_pca*
+        # rm -rf ${outputs_dir}/eval_with_*
+        # rm -rf ${outputs_dir}/train_with_*
+        rm -rf ${outputs_dir}/projection*
+        # rm -rf ${outputs_dir}/collect_data
+        # rm -rf ${outputs_dir}/checkpoints_fixed*
     done
 done
 

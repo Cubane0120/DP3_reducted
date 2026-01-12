@@ -453,12 +453,6 @@ class DP3(BasePolicy):
         elif sampling_type == "uniform":
             num_collect_outputTensor_segmnets = 10
             num_noise_iters = num_total_iter // num_collect_outputTensor_segmnets
-        # elif sampling_type == "2-anchor":
-        #     num_collect_outputTensor_segmnets = 2
-        #     num_noise_iters = num_total_iter // num_collect_outputTensor_segmnets
-        # elif sampling_type == "1-anchor":
-        #     num_collect_outputTensor_segmnets = 1
-        #     num_noise_iters = num_total_iter // num_collect_outputTensor_segmnets
         else:
             raise ValueError(f"Unsupported sampling_type {sampling_type} in collect_outputTensor")
         

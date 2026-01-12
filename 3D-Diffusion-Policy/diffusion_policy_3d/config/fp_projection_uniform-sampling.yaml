@@ -35,8 +35,8 @@ policy: &policy_base
   - 1024
   - 2048
   crop_shape:
-  - 80
-  - 80
+  - 84
+  - 84
   encoder_output_dim: 64
   horizon: ${horizon}
   kernel_size: 5
@@ -135,7 +135,7 @@ training: &training_base
   debug: False
   resume: True
   lr_scheduler: cosine
-  lr_warmup_steps: 200
+  lr_warmup_steps: 500
   num_epochs: 3000
   gradient_accumulate_every: 1
   use_ema: True
@@ -150,14 +150,14 @@ training: &training_base
 
 training_reducted:
   <<: *training_base
-  lr_warmup_steps: 100
+  lr_warmup_steps: 500
   num_epochs: 1500
   gradient_accumulate_every: 1
   use_ema: True
   rollout_every: 100
   checkpoint_every: 100
   load_eval_checkpoint_type : best #latest
-  load_origin_checkpoint_type : best #latest #best #or latest
+  load_origin_checkpoint_type : latest #best #or latest
 
 
 

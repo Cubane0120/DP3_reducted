@@ -42,7 +42,7 @@ def main(cfg):
         raise ValueError("sampling_type must be specified in the config file")
     else:
         sampling_type = str(sampling_type)    
-        if sampling_type not in ['uniform', '2-anchor', '1-anchor', 'hybrid']:
+        if sampling_type not in ['1-anchor', 'uniform', 'linear', 'central']:
             raise ValueError(f"sampling_type {sampling_type} not supported")
 
     for i_prefix, prefix in enumerate(prefixes):

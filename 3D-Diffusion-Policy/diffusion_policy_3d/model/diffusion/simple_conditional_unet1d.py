@@ -116,96 +116,56 @@ class ConditionalUnet1D(nn.Module):
         use_down_condition=True,
         use_mid_condition=True,
         use_up_condition=True,
-        collect_data=False,
-        collect_data_path=None,
-        path_basis_h1=None,
-        path_basis_h2=None,
-        path_basis_md=None,
+        # collecting output Tensor to calculate SVD basis
+        collect_outputTensor=False, #aadsad
+        collect_outputTensor_path=None,
+        sampling_type=None,
+        # projection module condition
+        using_projection=False,
+        percentVar = None,
+        projection_h1_dim = None,
+        projection_h2_dim = None,
+        projection_reduction_rate = 2,
+        
+        # SVD's projection
+        using_projection_SVD_init=False,
+        path_basis=None,
+        
+        freezing_early_module=False,
+        freezing_diffusion_step_encoder=False,
+        pojection_is_trainable=False,
+        pojection_is_trainable_partially=False,
         ):
+        
         super().__init__()
-        if path_basis_h1 is not None:
-            if not os.path.isfile(path_basis_h1):
-                raise FileNotFoundError(f"{path_basis_h1} not found")
-            # reductor_np = np.load(path_basis)
-            # reductor_t = torch.from_numpy(reductor_np)
-            # #self.reductor= self.reductor.float()   
-            # self.register_buffer("reductor", reductor_t) 
-
-            reductor_np = np.load(path_basis_h1)
-            reductor_t  = torch.from_numpy(reductor_np)
-            # Conv1d 모듈 생성
-            self.reductor_h1_conv = nn.Conv1d(
-                in_channels= reductor_t.shape[0], 
-                out_channels=reductor_t.shape[1],
-                kernel_size=1,
-                bias=False
-            )
-            with torch.no_grad():
-                self.reductor_h1_conv.weight.copy_(reductor_t.t().unsqueeze(-1))
-            k_h1 = reductor_t.shape[1]
-        else:
-            k_h1 = down_dims[1]
-        if path_basis_h2 is not None:
-            if not os.path.isfile(path_basis_h2):
-                raise FileNotFoundError(f"{path_basis_h2} not found")
-            # reductor_np = np.load(path_basis)
-            # reductor_t = torch.from_numpy(reductor_np)
-            # #self.reductor= self.reductor.float()   
-            # self.register_buffer("reductor", reductor_t) 
-
-            reductor_np = np.load(path_basis_h2)
-            reductor_t  = torch.from_numpy(reductor_np)
-            # Conv1d 모듈 생성
-            self.reductor_h2_conv = nn.Conv1d(
-                in_channels= reductor_t.shape[0], 
-                out_channels=reductor_t.shape[1],
-                kernel_size=1,
-                bias=False
-            )
-            with torch.no_grad():
-                self.reductor_h2_conv.weight.copy_(reductor_t.t().unsqueeze(-1))
-            k_h2 = reductor_t.shape[1]
-        else:
-            k_h2 = down_dims[2]
-        if path_basis_md is not None:
-            if not os.path.isfile(path_basis_md):
-                raise FileNotFoundError(f"{path_basis_md} not found")
-            # reductor_np = np.load(path_basis)
-            # reductor_t = torch.from_numpy(reductor_np)
-            # #self.reductor= self.reductor.float()   
-            # self.register_buffer("reductor", reductor_t) 
-
-            reductor_np = np.load(path_basis_md)
-            reductor_t  = torch.from_numpy(reductor_np)
-            # Conv1d 모듈 생성
-            self.reductor_md_conv = nn.Conv1d(
-                in_channels= reductor_t.shape[0], 
-                out_channels=reductor_t.shape[1],
-                kernel_size=1,
-                bias=False
-            )
-            with torch.no_grad():
-                self.reductor_md_conv.weight.copy_(reductor_t.t().unsqueeze(-1))
-            k_md = reductor_t.shape[1]
-        else:
-            k_md = down_dims[2]
-
-        self.path_basis_h1 = path_basis_h1
-        self.path_basis_h2 = path_basis_h2
-        self.path_basis_md = path_basis_md
-
+        
         self.condition_type = condition_type
         
         self.use_down_condition = use_down_condition
         self.use_mid_condition = use_mid_condition
         self.use_up_condition = use_up_condition
-        self.collect_data = collect_data
-        if collect_data:
-            self.collect_data_path = collect_data_path
+        
+        
+        self.collect_outputTensor = collect_outputTensor
+        if collect_outputTensor:
+            self.collect_outputTensor_path = collect_outputTensor_path
             self.idx_save_h1 = 0
             self.idx_save_h2 = 0
-            self.idx_save_md = 0
+        self.using_projection = using_projection
+        
 
+        if sampling_type is not None:
+            sampling_type = str(sampling_type)
+            
+            if sampling_type not in ['1-anchor', 'uniform', 'linear', 'central']:
+                raise ValueError(f"sampling_type {sampling_type} not supported")
+        else:
+            if self.using_projection:
+                raise ValueError("sampling_type must be specified when using_projection is True")
+        
+        if self.using_projection:
+            raise NotImplementedError("projection module in simple DP3/FP is not implemented yet")
+            
         all_dims = [input_dim] + list(down_dims)
         start_dim = down_dims[0]
 
@@ -270,61 +230,27 @@ class ConditionalUnet1D(nn.Module):
 
         up_modules = nn.ModuleList([])
 
-        # breakpoint()
-        if path_basis_h1 is None and path_basis_h2 is None and path_basis_md is None:
-            out_in = reversed(in_out[1:])
+        out_in = reversed(in_out[1:])
 
-            for ind, (dim_in, dim_out) in enumerate(reversed(in_out[1:])):
-                is_last = ind >= (len(in_out) - 1)
-                up_modules.append(nn.ModuleList([
-                    ConditionalResidualBlock1D(
-                        dim_out*2, dim_in, cond_dim=cond_dim,
-                        kernel_size=kernel_size, n_groups=n_groups,
-                        condition_type=condition_type),
-                    # ConditionalResidualBlock1D(
-                    #     dim_in, dim_in, cond_dim=cond_dim,
-                    #     kernel_size=kernel_size, n_groups=n_groups,
-                    #     condition_type=condition_type),
-                    Upsample1d(dim_in) if not is_last else nn.Identity()
-                ]))
-            
-            final_conv = nn.Sequential(
-                Conv1dBlock(start_dim, start_dim, kernel_size=kernel_size),
-                nn.Conv1d(start_dim, input_dim, 1),
-            )
-        else:
-            out_in = (
-                [  
-                    k_md + k_h2,
-                    ((k_md + k_h2)//32 + 1) * 8  
-                ],
-                [
-                    ((k_md + k_h2)//32 + 1) * 8  + k_h1,
-                    ((((k_md + k_h2)//32 + 1) * 8  + k_h1 )//32 + 1 )*8
-                ]
-            )
-            # print(out_in)
-            # print(k_h1, k_h2, k_md)
-            for ind, (dim_in, dim_out) in enumerate(out_in):
-                is_last = ind >= (len(in_out) - 1)
-                up_modules.append(nn.ModuleList([
-                    ConditionalResidualBlock1D(
-                        dim_in, dim_out, cond_dim=cond_dim, 
-                        kernel_size=kernel_size, n_groups=n_groups,
-                        condition_type=condition_type),
-                    # ConditionalResidualBlock1D(
-                    #     dim_out, dim_out, cond_dim=cond_dim, 
-                    #     kernel_size=kernel_size, n_groups=n_groups,
-                    #     condition_type=condition_type),
-                    Upsample1d(dim_out) if not is_last else nn.Identity()
-                ]))
+        for ind, (dim_in, dim_out) in enumerate(out_in):
+            is_last = ind >= (len(in_out) - 1)
+            up_modules.append(nn.ModuleList([
+                ConditionalResidualBlock1D(
+                    dim_out*2, dim_in, cond_dim=cond_dim,
+                    kernel_size=kernel_size, n_groups=n_groups,
+                    condition_type=condition_type),
+                # ConditionalResidualBlock1D(
+                #     dim_in, dim_in, cond_dim=cond_dim,
+                #     kernel_size=kernel_size, n_groups=n_groups,
+                #     condition_type=condition_type),
+                Upsample1d(dim_in) if not is_last else nn.Identity()
+            ]))
+        
+        final_conv = nn.Sequential(
+            Conv1dBlock(start_dim, start_dim, kernel_size=kernel_size),
+            nn.Conv1d(start_dim, input_dim, 1),
+        )
 
-            f_dim = out_in[-1][-1]
-            final_conv = nn.Sequential(
-                Conv1dBlock(f_dim, f_dim, kernel_size=kernel_size),
-                nn.Conv1d(f_dim, input_dim, 1),
-            )
-        # breakpoint()
 
         self.diffusion_step_encoder = diffusion_step_encoder
         self.local_cond_encoder = local_cond_encoder
@@ -335,22 +261,7 @@ class ConditionalUnet1D(nn.Module):
         logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
         print_params(self)
 
-        if path_basis_h1 is not None or path_basis_h2 is not None or path_basis_md is not None:
-            for p in self.parameters():
-                p.requires_grad = False
-
-            # 2) up_modules 만 학습 가능하도록 해제
-            for p in self.up_modules.parameters():
-                p.requires_grad = True
-
-            # 3) final_conv 만 학습 가능하도록 해제
-            for p in self.final_conv.parameters():
-                p.requires_grad = True
-            
-            print(f"[ConditionalUnet1D] using path basis h1: %s", path_basis_h1)
-            print(f"[ConditionalUnet1D] using path basis h2: %s", path_basis_h2)
-            print(f"[ConditionalUnet1D] using path basis md: %s", path_basis_md)
-            print(f"freezing model without up_modules and final_conv")
+        print(f"num_param: {sum(p.numel() for p in self.parameters())}")
 
     def forward(self, 
             sample: torch.Tensor, 
@@ -406,24 +317,6 @@ class ConditionalUnet1D(nn.Module):
                     x = x + h_local[0]
                 x = resnet2(x)
             h.append(x)
-            if self.collect_data and idx!=0:
-                # save bottleneck_out
-                latent = x.detach().cpu().numpy()  # (1,1024,8)/(1,2048,4)
-                latent = latent.squeeze(0)
-                #np.save(f"/home/hsh/3D-Diffusion-Policy/data_bottleneck_out/latent_sample_{self.idx_save}.npy", latent)
-                if self.collect_data_path is None:
-                    raise ValueError("collect_data_path must be specified when collect_data is True")
-                if not os.path.exists(self.collect_data_path):
-                    os.makedirs(self.collect_data_path)
-                
-                if idx == 1:
-                    np.save(f"{self.collect_data_path}/latent_h1_{self.idx_save_h1}.npy", latent)
-                    self.idx_save_h1+=1
-                elif idx == 2:
-                    np.save(f"{self.collect_data_path}/latent_h2_{self.idx_save_h2}.npy", latent)
-                    self.idx_save_h2+=1
-                else:
-                    raise ValueError(f"idx {idx} in down_modules is not supported for collect_data")
             x = downsample(x)
 
 
@@ -433,31 +326,10 @@ class ConditionalUnet1D(nn.Module):
                 # print(f'mid1: {x.shape}')
             else:
                 x = mid_module(x)
-        if self.collect_data:
-            # save bottleneck_out
-            latent = x.detach().cpu().numpy()  # (1,2048,4)
-            latent = latent.squeeze(0)
-            #np.save(f"/home/hsh/3D-Diffusion-Policy/data_bottleneck_out/latent_sample_{self.idx_save}.npy", latent)
-            if self.collect_data_path is None:
-                raise ValueError("collect_data_path must be specified when collect_data is True")
-            if not os.path.exists(self.collect_data_path):
-                os.makedirs(self.collect_data_path)
-            np.save(f"{self.collect_data_path}/latent_md_{self.idx_save_md}.npy", latent)
-            self.idx_save_md+=1
-
-        if self.path_basis_md is not None:
-            x = self.reductor_md_conv(x)
 
         for idx, (resnet, upsample) in enumerate(self.up_modules):
             # breakpoint()
-            if self.path_basis_h2 is not None and idx == 0:
-                h_reducted = self.reductor_h2_conv(h.pop())
-                x = torch.cat((x, h_reducted), dim=1)
-            elif self.path_basis_h1 is not None and idx == 1:
-                h_reducted = self.reductor_h1_conv(h.pop())
-                x = torch.cat((x, h_reducted), dim=1)
-            else:
-                x = torch.cat((x, h.pop()), dim=1)
+            x = torch.cat((x, h.pop()), dim=1)
 
             if self.use_up_condition:
                 x = resnet(x, global_feature)

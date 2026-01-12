@@ -35,8 +35,8 @@ policy: &policy_base
   - 1024
   - 2048
   crop_shape:
-  - 80
-  - 80
+  - 84
+  - 84
   encoder_output_dim: 64
   horizon: ${horizon}
   kernel_size: 5
@@ -115,7 +115,7 @@ training: &training_base
   debug: False
   resume: True
   lr_scheduler: cosine
-  lr_warmup_steps: 200
+  lr_warmup_steps: 500
   num_epochs: 3000
   gradient_accumulate_every: 1
   use_ema: True
@@ -131,7 +131,7 @@ training: &training_base
 training_reducted:
   <<: *training_base
   load_eval_checkpoint_type : best #latest
-  load_origin_checkpoint_type : best #latest #best #or latest
+  load_origin_checkpoint_type : latest #best #or latest
 
 
 
@@ -152,7 +152,7 @@ checkpoint:
     mode: max
     k: 1
     format_str: 'epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt'
-  save_last_ckpt: False # this only saves when save_ckpt is True
+  save_last_ckpt: True # this only saves when save_ckpt is True
   save_last_snapshot: False
 
 multi_run:

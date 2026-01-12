@@ -46,7 +46,6 @@ TASK=(
     # "pick-out-of-hole"
     # "pick-place"
     # "push"
-    "push-back"
 )
 
 

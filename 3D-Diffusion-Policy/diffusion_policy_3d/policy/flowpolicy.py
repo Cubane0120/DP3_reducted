@@ -436,20 +436,32 @@ class FlowPolicy(BasePolicy):
 
         if sampling_type is None:
             raise ValueError("sampling_type must be specified in collect_outputTensor")
-        elif sampling_type == "uniform":
-            num_collect_outputTensor_segments = 10
-            num_noise_iters = [num_total_iter // num_collect_outputTensor_segments] * num_collect_outputTensor_segments
-        elif sampling_type == "2-anchor":
-            num_collect_outputTensor_segments = 2
-            num_noise_iters = [num_total_iter // num_collect_outputTensor_segments] * num_collect_outputTensor_segments
         elif sampling_type == "1-anchor":
             num_collect_outputTensor_segments = 1
             num_noise_iters = [num_total_iter // num_collect_outputTensor_segments] * num_collect_outputTensor_segments
-        elif sampling_type == "hybrid":
+        elif sampling_type == "uniform":
             num_collect_outputTensor_segments = 10
-            num_noise_iters = [0.7 * num_total_iter // num_collect_outputTensor_segments] * num_collect_outputTensor_segments
-            num_noise_iters[0] = num_total_iter - sum(num_noise_iters[1:])
-            num_noise_iters = list(map(int, num_noise_iters))
+            num_noise_iters = [num_total_iter // num_collect_outputTensor_segments] * num_collect_outputTensor_segments
+        elif sampling_type == "linear":
+            num_collect_outputTensor_segments = 10
+            
+            min_sum = num_collect_outputTensor_segments * (num_collect_outputTensor_segments + 1) // 2
+            rem = num_total_iter - min_sum
+            q, r = divmod(rem, num_collect_outputTensor_segments)
+            e = [q] * (num_collect_outputTensor_segments - r) + [q + 1] * r
+            
+            num_noise_iters = [i + 1 + e[i] for i in range(num_collect_outputTensor_segments)]
+        elif sampling_type == "central":
+            num_collect_outputTensor_segments = 10
+
+            half_min_sum = (num_collect_outputTensor_segments//2) ** 2
+            
+            rem = num_total_iter//2 - half_min_sum
+            q, r = divmod(rem, num_collect_outputTensor_segments//2)
+            e = [q] * (num_collect_outputTensor_segments//2 - r) + [q + 1] * r
+            half_iter = [2*i + 1 + e[i] for i in range(num_collect_outputTensor_segments//2)]
+
+            num_noise_iters = half_iter + list(reversed(half_iter))
         else:
             raise ValueError(f"Unsupported sampling_type {sampling_type} in collect_outputTensor")
         

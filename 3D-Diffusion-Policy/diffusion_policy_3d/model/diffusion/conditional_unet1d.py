@@ -212,7 +212,7 @@ class ProjectionModule(nn.Module):
                 raise ValueError(f"freezing projection module without initial parameters")
 
         if is_trainable_partially:
-            self.delta = nn.Parameter(torch.zeros_like(self.projector.weight))
+            self.delta = nn.Parameter(torch.zeros(out_channels, out_channels))
             self.alpha = float(alpha)
 
             if grad_scale != 1.0:
@@ -230,36 +230,44 @@ class ProjectionModule(nn.Module):
                 print(f"projection module C : {in_channels} -> {out_channels} is frozen")
         else:
             print(f"projection module C : {in_channels} -> {out_channels} is trainable")
+            
+    def _fused_weight(self, dtype, device):
+        # W0: (k, C, 1) -> (k, C)
+        W0 = self.W0_base.to(device=device, dtype=dtype).squeeze(-1)  # (k, C)
+        k = W0.shape[0]
+        I = torch.eye(k, device=device, dtype=dtype)
+        M = I + self.alpha * torch.tanh(self.delta.to(device=device, dtype=dtype))  # (k,k)
 
+        W = (M @ W0).unsqueeze(-1).contiguous()  # (k, C, 1)
+        return W
 
     def train(self, mode: bool = True):
         super().train(mode)
-        if mode and self.is_trainable_partially:
+        if self.is_trainable_partially:  
             with torch.no_grad():
-                self.projector.weight.copy_(self.W0_base)
-                
-        if not mode and self.is_trainable_partially:
-            with torch.no_grad():
-                fused = self.W0_base * (1.0 + self.alpha * torch.tanh(self.delta))
-                self.projector.weight.copy_(fused)
+                if mode:
+                    self.projector.weight.copy_(self.W0_base)
+                else:
+                    # fused = self.W0_base * (1.0 + self.alpha * torch.tanh(self.delta))
+                    # self.projector.weight.copy_(fused)
+                    W = self._fused_weight(dtype=self.projector.weight.dtype,
+                                            device=self.projector.weight.device)
+                    self.projector.weight.copy_(W)
         return self
 
     def forward(self, x):
-        if not self.training:
+        if not self.training or not (self.is_trainable_partially):
             return self.projector(x)
         
-        if self.is_trainable_partially:
-            W  = self.W0_base * (1.0 + self.alpha * torch.tanh(self.delta))
-            
-            return F.conv1d(
-                x, W, bias=None,
-                stride=self.projector.stride,
-                padding=self.projector.padding,
-                dilation=self.projector.dilation,
-                groups=self.projector.groups,
-            )
-        else:
-            return self.projector(x)
+        # W  = self.W0_base * (1.0 + self.alpha * torch.tanh(self.delta))
+        W = self._fused_weight(dtype=x.dtype, device=x.device)
+        return F.conv1d(
+            x, W, bias=None,
+            stride=self.projector.stride,
+            padding=self.projector.padding,
+            dilation=self.projector.dilation,
+            groups=self.projector.groups,
+        )
 
 def Select_dimension_with_PercentVariance(path, percentVar, n):
     if not os.path.isfile(path):
@@ -333,7 +341,7 @@ class ConditionalUnet1D(nn.Module):
         if sampling_type is not None:
             sampling_type = str(sampling_type)
             
-            if sampling_type not in ['uniform', '2-anchor', '1-anchor', 'hybrid']:
+            if sampling_type not in ['1-anchor', 'uniform', 'linear', 'central']:
                 raise ValueError(f"sampling_type {sampling_type} not supported")
         else:
             if self.using_projection:

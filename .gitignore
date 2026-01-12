@@ -48,3 +48,5 @@ output/
 local_conda
 run_scripts_*
 bench_out
+fin_log_*
+0107
